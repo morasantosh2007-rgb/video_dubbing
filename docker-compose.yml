@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dubbing_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ASR_PROVIDER=faster_whisper
+      - WHISPER_MODEL_SIZE=base
+      - TRANSLATION_PROVIDER=mymemory
+      - TTS_PROVIDER=edge-tts
+      - DEFAULT_TELUGU_VOICE=te-IN-MohanNeural
+      - MAX_UPLOAD_SIZE_MB=500
+      - PRESERVE_BACKGROUND_AUDIO=true
+      - BACKGROUND_DUCKING_DB=-12.0
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    volumes:
+      - ./backend/data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

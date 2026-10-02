@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+.pytest_cache/
+*.db
+
+# Backend Storage (Keep directories, ignore contents)
+backend/data/uploads/*
+backend/data/outputs/*
+backend/data/temp/*
+backend/data/models/*
+!backend/data/uploads/.gitkeep
+!backend/data/outputs/.gitkeep
+!backend/data/temp/.gitkeep
+!backend/data/models/.gitkeep
+
+# Environment variables & secrets
+.env
+*.local
+
+# Flutter
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/.pub/
+frontend/build/
+frontend/ios/Flutter/Generated.xcconfig
+frontend/ios/Flutter/flutter_export_environment.sh
+frontend/android/.gradle/
+frontend/android/local.properties
+
+# OS
+.DS_Store
+Thumbs.db

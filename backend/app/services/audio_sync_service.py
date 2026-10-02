@@ -1,0 +1,218 @@
+import logging
+import math
+import subprocess
+from pathlib import Path
+from typing import List, Optional
+from pydub import AudioSegment
+
+from app.config import settings
+from app.models.schemas import SpeechSegment
+from app.services.tts_service import TTSService
+
+logger = logging.getLogger(__name__)
+
+class AudioSyncService:
+    @staticmethod
+    def time_stretch_audio(input_wav: Path, output_wav: Path, tempo_ratio: float) -> Path:
+        """
+        Time-stretch an audio file while preserving its pitch and natural formant structure.
+        Uses FFmpeg's librubberband filter (or atempo filter as fallback).
+        tempo_ratio > 1.0 speeds up audio (shorter duration).
+        tempo_ratio < 1.0 slows down audio (longer duration).
+        """
+        output_wav.parent.mkdir(parents=True, exist_ok=True)
+        # Clamped to safe musical bounds to prevent robotic artifacts
+        clamped_tempo = max(0.65, min(1.40, tempo_ratio))
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", str(input_wav),
+            "-filter:a", f"rubberband=tempo={clamped_tempo:.4f}",
+            "-ar", "48000",
+            "-ac", "2",
+            str(output_wav)
+        ]
+
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            logger.warning(f"Rubberband failed, using atempo fallback: {res.stderr}")
+            # atempo supports 0.5 to 2.0
+            cmd_atempo = [
+                "ffmpeg",
+                "-y",
+                "-i", str(input_wav),
+                "-filter:a", f"atempo={clamped_tempo:.4f}",
+                "-ar", "48000",
+                "-ac", "2",
+                str(output_wav)
+            ]
+            res2 = subprocess.run(cmd_atempo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res2.returncode != 0:
+                raise RuntimeError(f"FFmpeg time stretch failed: {res2.stderr}")
+
+        return output_wav
+
+    @classmethod
+    def synchronize_segment(
+        cls,
+        segment: SpeechSegment,
+        voice_id: str,
+        work_dir: Path
+    ) -> Path:
+        """
+        Generate and synchronize Telugu speech for a single segment.
+        Matches the original Hindi duration using intelligent multi-pass adaptation:
+        1. Natural TTS generation
+        2. Duration ratio measurement
+        3. Rate-optimized regeneration if significantly off
+        4. Fine pitch-preserved time-stretching
+        5. Padding/centering within interval
+        """
+        seg_id = segment.segment_id
+        target_dur = max(0.4, segment.duration)
+        raw_tts_path = work_dir / f"tts_raw_seg_{seg_id}.mp3"
+        stretched_path = work_dir / f"tts_sync_seg_{seg_id}.wav"
+
+        # 1. First pass: Natural TTS
+        initial_dur = TTSService.generate_speech(
+            text=segment.telugu_text,
+            output_path=raw_tts_path,
+            voice_id=voice_id,
+            rate_factor=1.0
+        )
+        segment.tts_duration = initial_dur
+
+        ratio = initial_dur / target_dur
+        logger.info(f"Segment #{seg_id}: Target={target_dur:.2f}s, Initial TTS={initial_dur:.2f}s, Ratio={ratio:.2f}")
+
+        # 2. If discrepancy is large, re-generate with natural speech rate factor
+        if ratio > 1.22:
+            # Articulate faster naturally via neural TTS
+            rate_factor = min(1.35, ratio)
+            logger.info(f"Segment #{seg_id}: Re-generating TTS with rate_factor={rate_factor:.2f}")
+            initial_dur = TTSService.generate_speech(
+                text=segment.telugu_text,
+                output_path=raw_tts_path,
+                voice_id=voice_id,
+                rate_factor=rate_factor
+            )
+            ratio = initial_dur / target_dur
+
+        # 3. Fine duration matching via time-stretching
+        # Target duration / current duration -> tempo required
+        required_tempo = round(initial_dur / target_dur, 4)
+        segment.speed_ratio = required_tempo
+
+        cls.time_stretch_audio(raw_tts_path, stretched_path, required_tempo)
+
+        # 4. Load stretched audio and adjust exact millisecond length
+        stretched_audio = AudioSegment.from_file(str(stretched_path))
+        target_ms = int(target_dur * 1000)
+        current_ms = len(stretched_audio)
+
+        final_seg_path = work_dir / f"final_seg_{seg_id}.wav"
+
+        if current_ms > target_ms:
+            # Subtle smooth fade out at end
+            truncated = stretched_audio[:target_ms].fade_out(15)
+            truncated.export(str(final_seg_path), format="wav")
+        elif current_ms < target_ms:
+            # Append silence padding to fill segment duration
+            diff_ms = target_ms - current_ms
+            padded = stretched_audio + AudioSegment.silent(duration=diff_ms, frame_rate=stretched_audio.frame_rate)
+            padded.fade_in(10).export(str(final_seg_path), format="wav")
+        else:
+            stretched_audio.fade_in(10).fade_out(10).export(str(final_seg_path), format="wav")
+
+        return final_seg_path
+
+    @classmethod
+    def build_dubbed_speech_track(
+        cls,
+        segments: List[SpeechSegment],
+        total_duration: float,
+        work_dir: Path,
+        voice_id: str
+    ) -> Path:
+        """
+        Builds a full-length master Telugu speech track synchronized to exact original timestamps.
+        """
+        logger.info(f"Building master speech track for {len(segments)} segments (total duration: {total_duration:.2f}s)...")
+        master_ms = max(int(total_duration * 1000) + 500, 1000)
+        # Create silent stereo 48kHz audio track
+        master_track = AudioSegment.silent(duration=master_ms, frame_rate=48000)
+        master_track = master_track.set_channels(2)
+
+        for seg in segments:
+            if not seg.telugu_text:
+                continue
+
+            seg_path = cls.synchronize_segment(seg, voice_id, work_dir)
+            seg_audio = AudioSegment.from_file(str(seg_path))
+            start_ms = int(seg.start * 1000)
+
+            # Overlay segment at its exact start timestamp
+            master_track = master_track.overlay(seg_audio, position=start_ms)
+
+        speech_track_path = work_dir / "master_telugu_speech.wav"
+        master_track.export(str(speech_track_path), format="wav")
+        return speech_track_path
+
+    @classmethod
+    def mix_final_audio(
+        cls,
+        original_stereo_audio: Path,
+        speech_track: Path,
+        segments: List[SpeechSegment],
+        output_mixed_audio: Path,
+        preserve_background: bool = True,
+        ducking_db: float = -12.0
+    ) -> Path:
+        """
+        Professional audio mixing:
+        - Duck original background audio while dialogue is active to keep speech crisp.
+        - Preserve original background music, effects, and ambient sounds during non-speech intervals.
+        - Normalize final loudness with EBU R128 (loudnorm).
+        """
+        output_mixed_audio.parent.mkdir(parents=True, exist_ok=True)
+        work_dir = output_mixed_audio.parent
+        raw_mix_path = work_dir / "raw_mixed.wav"
+
+        if preserve_background and original_stereo_audio.exists():
+            logger.info("Applying dynamic FFmpeg sidechain ducking to preserve background audio...")
+            # Use sidechaincompress to duck background audio when speech track is active
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", str(original_stereo_audio),
+                "-i", str(speech_track),
+                "-filter_complex",
+                "[0:a][1:a]sidechaincompress=threshold=0.08:ratio=5:attack=20:release=300[ducked];"
+                "[ducked][1:a]amix=inputs=2:weights=0.8 1.3[mixed];"
+                "[mixed]loudnorm=I=-16:TP=-1.5:LRA=11[out]",
+                "-map", "[out]",
+                "-ar", "48000",
+                "-ac", "2",
+                str(output_mixed_audio)
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res.returncode == 0:
+                return output_mixed_audio
+            logger.warning(f"FFmpeg sidechain ducking failed ({res.stderr}), falling back to speech track...")
+
+        # Fallback / Speech only with loudness normalization
+        norm_cmd = [
+            "ffmpeg", "-y",
+            "-i", str(speech_track),
+            "-filter:a", "loudnorm=I=-16:TP=-1.5:LRA=11",
+            "-ar", "48000",
+            "-ac", "2",
+            str(output_mixed_audio)
+        ]
+        res = subprocess.run(norm_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            logger.warning(f"loudnorm failed, copying speech track: {res.stderr}")
+            import shutil
+            shutil.copy(speech_track, output_mixed_audio)
+
+        return output_mixed_audio

@@ -1,0 +1,226 @@
+import os
+import re
+import uuid
+import logging
+from pathlib import Path
+from typing import List, Optional
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, JSONResponse
+
+from app.config import settings
+from app.models.schemas import (
+    DubbingJobResponse,
+    JobProgressResponse,
+    JobSettings,
+    JobStatus,
+    LanguageOption,
+    SpeechSegment,
+    VoiceOption,
+)
+from app.services.pipeline import DubbingPipeline
+from app.services.tts_service import TTSService
+from app.storage.job_store import job_store
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix=settings.API_PREFIX)
+
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename to prevent directory traversal or malformed paths."""
+    base = os.path.basename(filename)
+    clean = re.sub(r'[^a-zA-Z0-9_.-]', '_', base)
+    return clean or "uploaded_video.mp4"
+
+@router.get("/health")
+def health_check():
+    """Health check endpoint confirming service status and environment."""
+    return {
+        "status": "healthy",
+        "project": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "asr_provider": settings.ASR_PROVIDER,
+        "translation_provider": settings.TRANSLATION_PROVIDER,
+        "tts_provider": settings.TTS_PROVIDER,
+    }
+
+@router.get("/languages", response_model=List[LanguageOption])
+def list_languages():
+    """List supported source and target languages."""
+    return [
+        LanguageOption(code="hi", name="Hindi", native_name="हिन्दी"),
+        LanguageOption(code="te", name="Telugu", native_name="తెలుగు"),
+        LanguageOption(code="en", name="English", native_name="English"),
+        LanguageOption(code="ta", name="Tamil", native_name="தமிழ்"),
+        LanguageOption(code="kn", name="Kannada", native_name="ಕನ್ನಡ"),
+    ]
+
+@router.get("/voices", response_model=List[VoiceOption])
+def list_voices(language: str = "te"):
+    """List available TTS voices for dubbing."""
+    return TTSService.get_available_voices(language)
+
+@router.post("/jobs", response_model=DubbingJobResponse, status_code=status.HTTP_201_CREATED)
+async def create_dubbing_job(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    source_language: str = Form("hi"),
+    target_language: str = Form("te"),
+    voice_id: str = Form("te-IN-MohanNeural"),
+    speaking_rate: float = Form(1.0),
+    preserve_background: bool = Form(True),
+    ducking_db: float = Form(-12.0)
+):
+    """
+    Upload a Hindi video and initiate the background AI dubbing pipeline.
+    """
+    # Validate extension
+    clean_name = sanitize_filename(file.filename)
+    ext = Path(clean_name).suffix.lower()
+    if ext not in settings.ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported format '{ext}'. Allowed: {', '.join(settings.ALLOWED_EXTENSIONS)}"
+        )
+
+    job_id = uuid.uuid4().hex[:12]
+    saved_filename = f"{job_id}_{clean_name}"
+    saved_path = settings.UPLOAD_DIR / saved_filename
+
+    # Save uploaded file in chunks
+    total_bytes = 0
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+    try:
+        with open(saved_path, "wb") as f_out:
+            while chunk := await file.read(1024 * 1024):  # 1MB chunk
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"Video exceeds maximum allowed size of {settings.MAX_UPLOAD_SIZE_MB}MB"
+                    )
+                f_out.write(chunk)
+    except Exception as e:
+        if saved_path.exists():
+            saved_path.unlink()
+        raise e
+
+    job_settings = JobSettings(
+        source_language=source_language,
+        target_language=target_language,
+        voice_id=voice_id,
+        speaking_rate=speaking_rate,
+        preserve_background=preserve_background,
+        ducking_db=ducking_db
+    )
+
+    job = job_store.create_job(
+        job_id=job_id,
+        original_filename=clean_name,
+        original_video_path=saved_path,
+        job_settings=job_settings
+    )
+
+    # Dispatch asynchronous background task
+    background_tasks.add_task(DubbingPipeline.execute_job, job_id)
+
+    return job
+
+@router.get("/jobs", response_model=List[DubbingJobResponse])
+def get_jobs(limit: int = 20):
+    """List recent dubbing jobs."""
+    return job_store.list_jobs(limit=limit)
+
+@router.get("/jobs/{job_id}", response_model=DubbingJobResponse)
+def get_job(job_id: str):
+    """Retrieve complete status and metadata for a specific job."""
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return job
+
+@router.get("/jobs/{job_id}/progress", response_model=JobProgressResponse)
+def get_job_progress(job_id: str):
+    """Lightweight polling endpoint for real-time progress updates."""
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return JobProgressResponse(
+        job_id=job.job_id,
+        status=job.status,
+        progress=job.progress,
+        message=job.message,
+        current_step=job.status.value
+    )
+
+@router.get("/jobs/{job_id}/segments", response_model=List[SpeechSegment])
+def get_job_segments(job_id: str):
+    """Retrieve timestamped segments showing original Hindi vs dubbed Telugu."""
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return job.segments
+
+@router.get("/jobs/{job_id}/video/original")
+def stream_original_video(job_id: str):
+    """Stream original uploaded video file."""
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    path = settings.UPLOAD_DIR / f"{job_id}_{job.original_filename}"
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file not found")
+    return FileResponse(path, media_type="video/mp4", filename=job.original_filename)
+
+@router.get("/jobs/{job_id}/video/dubbed")
+def stream_dubbed_video(job_id: str):
+    """Stream final synchronized Telugu dubbed video."""
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Job is not completed yet (current status: {job.status})"
+        )
+    path = settings.OUTPUT_DIR / f"dubbed_{job_id}_{job.original_filename}"
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dubbed video file not found")
+    return FileResponse(path, media_type="video/mp4", filename=f"telugu_dubbed_{job.original_filename}")
+
+@router.get("/jobs/{job_id}/download")
+def download_dubbed_video(job_id: str):
+    """Download final dubbed Telugu video file."""
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job is not completed")
+    path = settings.OUTPUT_DIR / f"dubbed_{job_id}_{job.original_filename}"
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Output file not found")
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=f"telugu_dubbed_{job.original_filename}"
+    )
+
+@router.delete("/jobs/{job_id}")
+def delete_job(job_id: str):
+    """Delete a dubbing job and remove files from disk."""
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    # Remove files
+    orig_path = settings.UPLOAD_DIR / f"{job_id}_{job.original_filename}"
+    out_path = settings.OUTPUT_DIR / f"dubbed_{job_id}_{job.original_filename}"
+    for p in (orig_path, out_path):
+        if p.exists():
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
+    job_store.delete_job(job_id)
+    return {"message": f"Job {job_id} deleted successfully"}
