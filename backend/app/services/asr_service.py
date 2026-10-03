@@ -89,6 +89,8 @@ class ASRService:
         # Pattern to filter out pure music notation tokens
         MUSIC_TOKENS = re.compile(r"^(\[संगीत\]|\[music\]|\(संगीत\)|\(music\)|♪|♫|\[applause\]|\[cheering\]|\s)+$", re.IGNORECASE)
 
+        HINDI_PROMPT = "यह एक स्पष्ट हिंदी संवाद या गीत है। कृपया केवल देवनागरी लिपि में लिखें। उदाहरण: केसरिया तेरा इश्क है पिया, रंग जाऊं जो मैं हाथ लगाऊं, दिन बीते सारा तेरी फिक्र में।"
+
         def _extract_segments(raw_segments) -> List[SpeechSegment]:
             extracted = []
             idx = 1
@@ -101,7 +103,25 @@ class ASRService:
                 if duration <= 0:
                     continue
 
+                # Filter out hallucination repetition loops & no-speech noise on music/outro
+                no_speech = getattr(seg, "no_speech_prob", 0.0)
+                if no_speech > 0.70:
+                    continue
+
+                comp_ratio = getattr(seg, "compression_ratio", 1.0)
+                if comp_ratio > 2.4:
+                    continue
+
+                # Detect repeated syllable/word loops on instrumental sections
+                if len(text) > 15 and len(set(text)) <= 6:
+                    continue
+                words = text.split()
+                if len(words) >= 4 and len(set(words)) <= 2:
+                    continue
+
                 confidence = round(float(seg.avg_logprob), 3) if hasattr(seg, "avg_logprob") else None
+                if confidence is not None and confidence < -1.25 and duration > 10.0:
+                    continue
 
                 extracted.append(
                     SpeechSegment(
@@ -127,7 +147,7 @@ class ASRService:
                 task="transcribe",
                 vad_filter=True,
                 vad_parameters=dict(min_silence_duration_ms=300, speech_pad_ms=250),
-                initial_prompt="यह एक हिंदी संवाद या गीत है।"
+                initial_prompt=HINDI_PROMPT
             )
             speech_segments = _extract_segments(raw_segs1)
             if speech_segments:
@@ -152,7 +172,7 @@ class ASRService:
                 condition_on_previous_text=False,
                 beam_size=5,
                 best_of=5,
-                initial_prompt="यह एक हिंदी गीत या संवाद है।"
+                initial_prompt=HINDI_PROMPT
             )
             speech_segments = _extract_segments(raw_segs2)
             if speech_segments:

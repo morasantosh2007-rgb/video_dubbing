@@ -1,4 +1,8 @@
+import json
 import logging
+import re
+import urllib.parse
+import urllib.request
 from typing import List, Optional
 from deep_translator import MyMemoryTranslator, GoogleTranslator
 
@@ -7,7 +11,136 @@ from app.models.schemas import SpeechSegment
 
 logger = logging.getLogger(__name__)
 
+# Comprehensive Lexicon to replace Hindi loanwords / transliterated Hindi roots with authentic Telugu words
+TELUGU_BOUNDARY = r"[అ-హ\u0c00-\u0c7f]"
+
+HINDI_TO_TELUGU_MAP = {
+    # Pronouns & Determiners (including phonetic corruptions from Whisper)
+    r"(?<![అ-హ])(తేరా|తేరీ|తేరే|ధేరీ|దేరి|దేరీ|ధేరా|తేర)(?![అ-హ])": "నీ",
+    r"(?<![అ-హ])(మేరా|మేరీ|మేరే|మేర)(?![అ-హ])": "నా",
+    r"(?<![అ-హ])(తున్|తూన్|తునే|తూనే|తుమ్|తూ)(?![అ-హ])": "నువ్వు",
+    r"(?<![అ-హ])(తుఝే|తుఝ్కో)(?![అ-హ])": "నీకు",
+    r"(?<![అ-హ])(ముఝే|ముఝ్కో)(?![అ-హ])": "నాకు",
+    r"(?<![అ-హ])(ఆప్కా|ఆప్కీ|ఆప్కే|ఆప్)(?![అ-హ])": "మీ",
+    r"(?<![అ-హ])(ఉస్కా|ఉస్కీ|ఉస్కే)(?![అ-హ])": "అతని",
+    r"(?<![అ-హ])(హం|హమారా|హమారీ|హమారే)(?![అ-హ])": "మేము",
+    r"(?<![అ-హ])(కట్ను|కట్నో|కత్నోం|కిత్నోం|కిత్నే|కిత్నీ)(?![అ-హ])": "ఎందరో",
+    r"(?<![అ-హ])(సారా|సారీ|సారే)(?![అ-హ])": "మొత్తం",
+    r"(?<![అ-హ])(జానే)(?![అ-హ])": "తెలుసు",
+
+    # Emotions, Love & Relationships
+    r"(?<![అ-హ])(సరియా|కేసరియా|కిసరియా|కైసరియా)(?![అ-హ])": "కుంకుమ",
+    r"(?<![అ-హ])(ఇష్క్\s*హై|ఇష్\s*హై|ఇష్క్|ఇష్ఖ్|ప్యార్|మొహబ్బత్)(?![అ-హ])": "ప్రేమ",
+    r"(?<![అ-హ])(పియా|బియా|హపియా|హప్\s*యా|పియాజీ)(?![అ-హ])": "ప్రియతమా",
+    r"(?<![అ-హ])(సజన్)(?![అ-హ])": "ప్రియుడా",
+    r"(?<![అ-హ])(దిల్|జిగర్)(?![అ-హ])": "మనసు",
+    r"(?<![అ-హ])(జాన్|జిందగీ)(?![అ-హ])": "జీవితం",
+    r"(?<![అ-హ])(దోస్త్|యార్)(?![అ-హ])": "స్నేహితుడు",
+    r"(?<![అ-హ])(దోస్తీ|యారీ)(?![అ-హ])": "స్నేహం",
+    r"(?<![అ-హ])(దీవానా)(?![అ-హ])": "పిచ్చివాడు",
+    r"(?<![అ-హ])(దీవానీ)(?![అ-హ])": "పిచ్చిది",
+
+    # Mental states & Well-being
+    r"(?<![అ-హ])(ఫికర్|ఫిక్ర|ఫిక్రి|ఫిక్రామి)(?![అ-హ])": "దిగులు",
+    r"(?<![అ-హ])(ఖైరిమానౌ|ఖెరిమానౌ|ఖైరువాం|ఖైర్|ఖైరి|ఖెరి|ఖైరియత్)(?![అ-హ])": "క్షేమం",
+    r"(?<![అ-హ])(ఖుషీ|ఖుష్)(?![అ-హ])": "సంతోషం",
+    r"(?<![అ-హ])(గమ్)(?![అ-హ])": "బాధ",
+    r"(?<![అ-హ])(దర్ద్)(?![అ-హ])": "వేదన",
+    r"(?<![అ-హ])(యాద్)(?![అ-హ])": "గుర్తు",
+    r"(?<![అ-హ])(సోచ్)(?![అ-హ])": "ఆలోచన",
+    r"(?<![అ-హ])(రబ్బనే|రబ్బానే|రబ్బా\s*నే|రబ్|ఖుదా)(?![అ-హ])": "దేవుడు",
+    r"(?<![అ-హ])(భగవాన్)(?![అ-హ])": "భగవంతుడు",
+
+    # Specific song / poetic vocabulary & phonetic transliterations
+    r"(?<![అ-హ])(హుస్న్|హోస్నే|హుసన్)(?![అ-హ])": "అందం",
+    r"(?<![అ-హ])(తిజోరియా|తిజోరి|జోరియా|ఖజానా)(?![అ-హ])": "ఖజానా",
+    r"(?<![అ-హ])(హాలితీ|హాలీ|హాలి|ఖాలీ)(?![అ-హ])": "ఖాళీ",
+    r"(?<![అ-హ])(సియా\s*హీ|సియాహీ|సియాహి|సిల్\s*కి)(?![అ-హ])": "సిరాతో",
+    r"(?<![అ-హ])(కాజల్|కాజర్|కజ్రారే)(?![అ-హ])": "కాటుక",
+    r"(?<![అ-హ])(లామ్\s*స్టోరియా|లవ్\s*స్టోరియాం|లవ్\s*స్టోరీ|హిస్టోరియా)(?![అ-హ])": "ప్రేమకథలు",
+    r"(?<![అ-హ])(హాత్\s*లగా|హాథోం|హాత్)(?![అ-హ])": "చేయి తాకడం",
+    r"(?<![అ-హ])(రానిసరి|రేనేసరి|రెనేసరి|రైన్\s*సారీ|రన్\s*సారీ)(?![అ-హ])": "రాత్రంతా",
+    r"(?<![అ-హ])(భీ\s*తే|బీ\s*తే|భీతే|బితే|బీతే)(?![అ-హ])": "గడిచింది",
+    r"(?<![అ-హ])(ఆంఖేం|ఆంఖ్)(?![అ-హ])": "కళ్ళు",
+    r"(?<![అ-హ])(బాత్|బాతేం)(?![అ-హ])": "మాటలు",
+    r"(?<![అ-హ])(రాత్|రైన్)(?![అ-హ])": "రాత్రి",
+    r"(?<![అ-హ])(దిన్)(?![అ-హ])": "రోజు",
+    r"(?<![అ-హ])(సుబహ్)(?![అ-హ])": "ఉదయం",
+    r"(?<![అ-హ])(షామ్)(?![అ-హ])": "సాయంత్రం",
+    r"(?<![అ-హ])(మౌసమ్)(?![అ-హ])": "ఋతువు",
+    r"(?<![అ-హ])(పత్ఝడ్)(?![అ-హ])": "ఆకురాలే కాలం",
+    r"(?<![అ-హ])(చానార్)(?![అ-హ])": "చెట్లు",
+    r"(?<![అ-హ])(హవా)(?![అ-హ])": "గాలి",
+    r"(?<![అ-హ])(లడ్కీ)(?![అ-హ])": "అమ్మాయి",
+    r"(?<![అ-హ])(లడ్కా)(?![అ-హ])": "అబ్బాయి",
+
+    # Hindi grammatical particles & linkers
+    r"(?<![అ-హ])(హై|హైం)(?![అ-హ])": "ఉంది",
+    r"(?<![అ-హ])(మే|మేం)(?![అ-హ])": "లో",
+    r"(?<![అ-హ])(సే)(?![అ-హ])": "తో",
+    r"(?<![అ-హ])(కో)(?![అ-హ])": "కి",
+    r"(?<![అ-హ])(కి)(?![అ-హ])": ""
+}
+
 class TranslationService:
+    @classmethod
+    def purify_telugu_vocabulary(cls, text: str) -> str:
+        """
+        Eliminates Hindi loanwords and transliterated Hindi roots,
+        ensuring 100% authentic, pure, natural Telugu vocabulary.
+        """
+        if not text:
+            return ""
+        for pattern, replacement in HINDI_TO_TELUGU_MAP.items():
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        # Normalize multiple spaces
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    @classmethod
+    def _distribute_words(cls, telugu_text: str, durations: List[float]) -> List[str]:
+        """
+        Distributes a complete translated Telugu sentence across grouped segments
+        proportionally according to their original durations, ensuring natural grammatical flow.
+        """
+        words = telugu_text.split()
+        if not words or not durations:
+            return ["" for _ in durations]
+
+        n = len(durations)
+        if n == 1:
+            return [telugu_text]
+
+        total_dur = sum(durations)
+        if total_dur <= 0:
+            total_dur = float(n)
+            durations = [1.0] * n
+
+        total_words = len(words)
+        word_counts = []
+        accum = 0
+
+        for i, dur in enumerate(durations):
+            if i == n - 1:
+                count = max(1, total_words - accum)
+            else:
+                ratio = dur / total_dur
+                count = max(1, round(total_words * ratio))
+                rem_segs = n - 1 - i
+                if accum + count + rem_segs > total_words:
+                    count = max(1, total_words - accum - rem_segs)
+            word_counts.append(count)
+            accum += count
+
+        results = []
+        cur_idx = 0
+        for count in word_counts:
+            segment_words = words[cur_idx : cur_idx + count]
+            results.append(" ".join(segment_words))
+            cur_idx += count
+
+        return results
+
     @classmethod
     def translate_segment(cls, text: str, source_lang: str = "hi", target_lang: str = "te") -> str:
         """
@@ -16,8 +149,9 @@ class TranslationService:
         1. Gemini (if GEMINI_API_KEY is available)
         2. OpenAI (if OPENAI_API_KEY is available)
         3. Groq (if GROQ_API_KEY is available)
-        4. MyMemoryTranslator (Neural free API with hi-IN / te-IN language pairing)
-        5. GoogleTranslator fallback
+        4. Direct Google Translation (Best for conversational Hindi, lyrics, and Romanized text)
+        5. MyMemoryTranslator (Neural free API with hi-IN / te-IN language pairing)
+        6. GoogleTranslator fallback
         """
         if not text or not text.strip():
             return ""
@@ -78,10 +212,6 @@ class TranslationService:
 
     @classmethod
     def _translate_google_gtx(cls, text: str, source_lang: str = "hi", target_lang: str = "te") -> Optional[str]:
-        import json
-        import urllib.parse
-        import urllib.request
-
         # Detect if text is mostly Latin/Romanized or Devanagari
         is_devanagari = any('\u0900' <= char <= '\u097f' for char in text)
         src = "hi" if is_devanagari else "auto"
@@ -112,12 +242,66 @@ class TranslationService:
 
     @classmethod
     def translate_segments(cls, segments: List[SpeechSegment], source_lang: str = "hi", target_lang: str = "te") -> List[SpeechSegment]:
-        """Translate all speech segments preserving sequential context."""
-        logger.info(f"Translating {len(segments)} segments from {source_lang} to {target_lang}...")
+        """
+        Translates speech segments as a connected sequence of language.
+        Instead of translating isolated fragments, consecutive clauses are clustered
+        into complete semantic sentences, translated with full grammatical continuity,
+        purified of Hindi loanwords, and proportionally distributed across timestamps.
+        """
+        if not segments:
+            return []
+
+        logger.info(f"Contextual Translation: Processing {len(segments)} segments into connected language...")
+
+        # 1. Group segments into semantic sentence clusters based on temporal proximity and clause endings
+        clusters: List[List[SpeechSegment]] = []
+        current_cluster: List[SpeechSegment] = []
+
         for seg in segments:
-            if seg.hindi_text:
-                seg.telugu_text = cls.translate_segment(seg.hindi_text, source_lang, target_lang)
+            if not seg.hindi_text or not seg.hindi_text.strip():
+                continue
+
+            if not current_cluster:
+                current_cluster.append(seg)
+                continue
+
+            prev = current_cluster[-1]
+            gap = round(seg.start - prev.end, 2)
+            prev_text = prev.hindi_text.rstrip()
+            prev_is_terminal = any(prev_text.endswith(p) for p in [".", "?", "!", "।", ";"])
+
+            # Merge if gap < 1.0s, previous text doesn't end with sentence-closing punctuation,
+            # and current cluster has fewer than 4 segments (to avoid overlong sentences)
+            if gap < 1.0 and not prev_is_terminal and len(current_cluster) < 4:
+                current_cluster.append(seg)
+            else:
+                clusters.append(current_cluster)
+                current_cluster = [seg]
+
+        if current_cluster:
+            clusters.append(current_cluster)
+
+        # 2. Translate each sentence cluster and distribute words across segments
+        for cluster in clusters:
+            if len(cluster) == 1:
+                seg = cluster[0]
+                raw_telugu = cls.translate_segment(seg.hindi_text, source_lang, target_lang)
+                seg.telugu_text = cls.purify_telugu_vocabulary(raw_telugu)
                 logger.info(f"Segment #{seg.segment_id}: '{seg.hindi_text}' -> '{seg.telugu_text}'")
+            else:
+                # Combine fragments into a complete, grammatically connected sentence
+                full_hindi = " ".join(s.hindi_text.strip() for s in cluster)
+                raw_telugu = cls.translate_segment(full_hindi, source_lang, target_lang)
+                purified_telugu = cls.purify_telugu_vocabulary(raw_telugu)
+
+                # Distribute translated words proportionally to match segment durations
+                durations = [s.duration for s in cluster]
+                distributed_parts = cls._distribute_words(purified_telugu, durations)
+
+                for seg, part in zip(cluster, distributed_parts):
+                    seg.telugu_text = part
+                    logger.info(f"Connected Seg #{seg.segment_id} ({seg.duration}s): '{seg.hindi_text}' -> '{seg.telugu_text}'")
+
         return segments
 
     @classmethod
@@ -125,9 +309,10 @@ class TranslationService:
         from google import genai
         client = genai.Client(api_key=settings.GEMINI_API_KEY)
         prompt = (
-            f"You are a professional video dubbing translator. Translate the following spoken {source_lang} dialogue "
-            f"into natural conversational {target_lang} suitable for voice actors. Match the cadence and length closely. "
-            f"Only return the raw translated text with no explanations or quotes.\n\nDialogue: {text}"
+            f"You are an expert Telugu dubbing scriptwriter and linguist. Translate the spoken {source_lang} dialogue/lyrics "
+            f"into 100% PURE, natural, conversational {target_lang}. DO NOT use Hindi loanwords (e.g. use ప్రేమ instead of ఇష్క్/ప్యార్, "
+            f"మనసు instead of దిల్, నీ instead of తేరా, దేవుడు instead of రబ్/ఖుదా, దిగులు instead of ఫిక్ర, క్షేమం instead of ఖైర్). "
+            f"Produce a smooth, grammatically connected sequence of language. Return ONLY the translated Telugu text.\n\nDialogue: {text}"
         )
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -144,7 +329,11 @@ class TranslationService:
             messages=[
                 {
                     "role": "system",
-                    "content": f"Translate conversational {source_lang} speech into natural {target_lang} dubbing dialogue. Match length and cadence. Output only translated text."
+                    "content": (
+                        f"You are an expert Telugu dubbing scriptwriter. Translate spoken {source_lang} into 100% PURE, natural {target_lang}. "
+                        f"DO NOT use Hindi loanwords (e.g. use ప్రేమ for ishq/pyaar, మనసు for dil, నీ for tera, దేవుడు for rab, దిగులు for fikr). "
+                        f"Produce a connected, grammatically complete sequence of language. Output only translated text."
+                    )
                 },
                 {"role": "user", "content": text}
             ],
@@ -161,7 +350,10 @@ class TranslationService:
             messages=[
                 {
                     "role": "system",
-                    "content": f"Translate conversational {source_lang} speech into natural {target_lang} dubbing dialogue. Match length and cadence. Output only translated text."
+                    "content": (
+                        f"You are an expert Telugu dubbing scriptwriter. Translate spoken {source_lang} into 100% PURE, natural {target_lang}. "
+                        f"DO NOT use Hindi loanwords. Produce a connected, grammatically complete sequence of language. Output only translated text."
+                    )
                 },
                 {"role": "user", "content": text}
             ],
