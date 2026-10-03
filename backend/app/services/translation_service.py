@@ -73,6 +73,17 @@ HINDI_TO_TELUGU_MAP = {
     r"(?<![అ-హ])(హవా)(?![అ-హ])": "గాలి",
     r"(?<![అ-హ])(లడ్కీ)(?![అ-హ])": "అమ్మాయి",
     r"(?<![అ-హ])(లడ్కా)(?![అ-హ])": "అబ్బాయి",
+    r"(?<![అ-హ])(గరం)(?![అ-హ])": "వేడి",
+    r"(?<![అ-హ])(సవదష్ట్|స్వీడిష్|స్వాదిష్ట)(?![అ-హ])": "రుచికరమైన",
+    r"(?<![అ-హ])(ధనే|వదర్ఫ్)(?![అ-హ])": "ధన్యవాదాలు",
+    r"(?<![అ-హ])(రబానే|రబ్బనే)(?![అ-హ])": "దేవుడు",
+    r"(?<![అ-హ])(ఏడుపు)(?![అ-హ])": "సూప్",
+    r"(?<![అ-హ])(తోగ|గ్యాస్)(?![అ-హ])": "పొయ్యి",
+    r"(?<![అ-హ])(పానీ)(?![అ-హ])": "నీళ్లు",
+    r"(?<![అ-హ])(ఆవాజ్)(?![అ-హ])": "గొంతు",
+    r"(?<![అ-హ])(నజర్)(?![అ-హ])": "చూపు",
+    r"(?<![అ-హ])(ఖాబోం|ఖ్వాబ్)(?![అ-హ])": "కలలు",
+    r"(?<![అ-హ])(రోటీ)(?![అ-హ])": "రొట్టె",
 
     # Hindi grammatical particles & linkers
     r"(?<![అ-హ])(హై|హైం)(?![అ-హ])": "ఉంది",
@@ -243,64 +254,23 @@ class TranslationService:
     @classmethod
     def translate_segments(cls, segments: List[SpeechSegment], source_lang: str = "hi", target_lang: str = "te") -> List[SpeechSegment]:
         """
-        Translates speech segments as a connected sequence of language.
-        Instead of translating isolated fragments, consecutive clauses are clustered
-        into complete semantic sentences, translated with full grammatical continuity,
-        purified of Hindi loanwords, and proportionally distributed across timestamps.
+        Translates speech segments preserving 1-to-1 temporal synchronization.
+        Each segment's spoken dialogue is translated and purified directly into pure Telugu,
+        ensuring that where the voice is active in the video, the Telugu audio matches
+        precisely at that exact timestamp without word scrambling or inter-segment delays.
         """
         if not segments:
             return []
 
-        logger.info(f"Contextual Translation: Processing {len(segments)} segments into connected language...")
-
-        # 1. Group segments into semantic sentence clusters based on temporal proximity and clause endings
-        clusters: List[List[SpeechSegment]] = []
-        current_cluster: List[SpeechSegment] = []
+        logger.info(f"Synchronized Translation: Processing {len(segments)} segments with 1-to-1 temporal alignment...")
 
         for seg in segments:
             if not seg.hindi_text or not seg.hindi_text.strip():
                 continue
 
-            if not current_cluster:
-                current_cluster.append(seg)
-                continue
-
-            prev = current_cluster[-1]
-            gap = round(seg.start - prev.end, 2)
-            prev_text = prev.hindi_text.rstrip()
-            prev_is_terminal = any(prev_text.endswith(p) for p in [".", "?", "!", "।", ";"])
-
-            # Merge if gap < 1.0s, previous text doesn't end with sentence-closing punctuation,
-            # and current cluster has fewer than 4 segments (to avoid overlong sentences)
-            if gap < 1.0 and not prev_is_terminal and len(current_cluster) < 4:
-                current_cluster.append(seg)
-            else:
-                clusters.append(current_cluster)
-                current_cluster = [seg]
-
-        if current_cluster:
-            clusters.append(current_cluster)
-
-        # 2. Translate each sentence cluster and distribute words across segments
-        for cluster in clusters:
-            if len(cluster) == 1:
-                seg = cluster[0]
-                raw_telugu = cls.translate_segment(seg.hindi_text, source_lang, target_lang)
-                seg.telugu_text = cls.purify_telugu_vocabulary(raw_telugu)
-                logger.info(f"Segment #{seg.segment_id}: '{seg.hindi_text}' -> '{seg.telugu_text}'")
-            else:
-                # Combine fragments into a complete, grammatically connected sentence
-                full_hindi = " ".join(s.hindi_text.strip() for s in cluster)
-                raw_telugu = cls.translate_segment(full_hindi, source_lang, target_lang)
-                purified_telugu = cls.purify_telugu_vocabulary(raw_telugu)
-
-                # Distribute translated words proportionally to match segment durations
-                durations = [s.duration for s in cluster]
-                distributed_parts = cls._distribute_words(purified_telugu, durations)
-
-                for seg, part in zip(cluster, distributed_parts):
-                    seg.telugu_text = part
-                    logger.info(f"Connected Seg #{seg.segment_id} ({seg.duration}s): '{seg.hindi_text}' -> '{seg.telugu_text}'")
+            raw_telugu = cls.translate_segment(seg.hindi_text, source_lang, target_lang)
+            seg.telugu_text = cls.purify_telugu_vocabulary(raw_telugu)
+            logger.info(f"Seg #{seg.segment_id} [{seg.start:.2f}-{seg.end:.2f}s | {seg.duration:.2f}s]: '{seg.hindi_text}' -> '{seg.telugu_text}'")
 
         return segments
 

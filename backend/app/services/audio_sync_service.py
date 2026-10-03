@@ -58,19 +58,21 @@ class AudioSyncService:
         cls,
         segment: SpeechSegment,
         voice_id: str,
-        work_dir: Path
+        work_dir: Path,
+        available_dur: Optional[float] = None
     ) -> Path:
         """
         Generate and synchronize Telugu speech for a single segment.
         Matches the original Hindi duration using intelligent multi-pass adaptation:
         1. Natural TTS generation
-        2. Duration ratio measurement
+        2. Duration ratio measurement with headroom consideration
         3. Rate-optimized regeneration if significantly off
         4. Fine pitch-preserved time-stretching
-        5. Padding/centering within interval
+        5. Natural lead-in/lead-out padding within interval
         """
         seg_id = segment.segment_id
         target_dur = max(0.4, segment.duration)
+        max_dur = max(target_dur, available_dur) if available_dur else target_dur
         raw_tts_path = work_dir / f"tts_raw_seg_{seg_id}.mp3"
         stretched_path = work_dir / f"tts_sync_seg_{seg_id}.wav"
 
@@ -84,44 +86,54 @@ class AudioSyncService:
         segment.tts_duration = initial_dur
 
         ratio = initial_dur / target_dur
-        logger.info(f"Segment #{seg_id}: Target={target_dur:.2f}s, Initial TTS={initial_dur:.2f}s, Ratio={ratio:.2f}")
+        logger.info(f"Segment #{seg_id}: Target={target_dur:.2f}s, MaxAvail={max_dur:.2f}s, Initial TTS={initial_dur:.2f}s, Ratio={ratio:.2f}")
 
         # 2. If discrepancy is large, re-generate with natural speech rate factor
-        if ratio > 1.22:
-            # Articulate faster naturally via neural TTS
-            rate_factor = min(1.35, ratio)
-            logger.info(f"Segment #{seg_id}: Re-generating TTS with rate_factor={rate_factor:.2f}")
-            initial_dur = TTSService.generate_speech(
-                text=segment.telugu_text,
-                output_path=raw_tts_path,
-                voice_id=voice_id,
-                rate_factor=rate_factor
-            )
-            ratio = initial_dur / target_dur
+        if initial_dur > target_dur:
+            if initial_dur > max_dur:
+                rate_factor = min(1.35, round(initial_dur / max_dur, 2))
+            else:
+                rate_factor = min(1.25, round(initial_dur / target_dur, 2))
 
-        # 3. Fine duration matching via time-stretching
-        # Target duration / current duration -> tempo required
-        required_tempo = round(initial_dur / target_dur, 4)
+            if rate_factor > 1.05:
+                logger.info(f"Segment #{seg_id}: Re-generating TTS with rate_factor={rate_factor:.2f}")
+                initial_dur = TTSService.generate_speech(
+                    text=segment.telugu_text,
+                    output_path=raw_tts_path,
+                    voice_id=voice_id,
+                    rate_factor=rate_factor
+                )
+
+        # 3. Fine duration matching via pitch-preserving time-stretching
+        effective_target = target_dur if initial_dur <= target_dur else min(initial_dur, max_dur)
+        required_tempo = round(initial_dur / effective_target, 4) if effective_target > 0 else 1.0
         segment.speed_ratio = required_tempo
 
         cls.time_stretch_audio(raw_tts_path, stretched_path, required_tempo)
 
-        # 4. Load stretched audio and adjust exact millisecond length
+        # 4. Load stretched audio and adjust millisecond length
         stretched_audio = AudioSegment.from_file(str(stretched_path))
         target_ms = int(target_dur * 1000)
+        max_ms = int(max_dur * 1000)
         current_ms = len(stretched_audio)
 
         final_seg_path = work_dir / f"final_seg_{seg_id}.wav"
 
-        if current_ms > target_ms:
-            # Subtle smooth fade out at end
-            truncated = stretched_audio[:target_ms].fade_out(15)
+        if current_ms > max_ms:
+            # Only truncate if speech would bleed past available headroom into the next segment
+            truncated = stretched_audio[:max_ms].fade_out(15)
             truncated.export(str(final_seg_path), format="wav")
         elif current_ms < target_ms:
-            # Append silence padding to fill segment duration
+            # Natural human padding: slight lead-in, majority lead-out
             diff_ms = target_ms - current_ms
-            padded = stretched_audio + AudioSegment.silent(duration=diff_ms, frame_rate=stretched_audio.frame_rate)
-            padded.fade_in(10).export(str(final_seg_path), format="wav")
+            lead_in = min(100, diff_ms // 4)
+            lead_out = diff_ms - lead_in
+            padded = (
+                AudioSegment.silent(duration=lead_in, frame_rate=stretched_audio.frame_rate)
+                + stretched_audio
+                + AudioSegment.silent(duration=lead_out, frame_rate=stretched_audio.frame_rate)
+            )
+            padded.fade_in(10).fade_out(10).export(str(final_seg_path), format="wav")
         else:
             stretched_audio.fade_in(10).fade_out(10).export(str(final_seg_path), format="wav")
 
@@ -137,18 +149,24 @@ class AudioSyncService:
     ) -> Path:
         """
         Builds a full-length master Telugu speech track synchronized to exact original timestamps.
+        Headroom between consecutive segments is respected to prevent unnatural word truncation.
         """
         logger.info(f"Building master speech track for {len(segments)} segments (total duration: {total_duration:.2f}s)...")
         master_ms = max(int(total_duration * 1000) + 500, 1000)
-        # Create silent stereo 48kHz audio track
         master_track = AudioSegment.silent(duration=master_ms, frame_rate=48000)
         master_track = master_track.set_channels(2)
 
-        for seg in segments:
+        for i, seg in enumerate(segments):
             if not seg.telugu_text:
                 continue
 
-            seg_path = cls.synchronize_segment(seg, voice_id, work_dir)
+            # Calculate headroom before the next segment starts
+            if i + 1 < len(segments):
+                available_dur = max(seg.duration, round(segments[i + 1].start - seg.start - 0.05, 2))
+            else:
+                available_dur = max(seg.duration, round(total_duration - seg.start - 0.05, 2))
+
+            seg_path = cls.synchronize_segment(seg, voice_id, work_dir, available_dur=available_dur)
             seg_audio = AudioSegment.from_file(str(seg_path))
             start_ms = int(seg.start * 1000)
 
