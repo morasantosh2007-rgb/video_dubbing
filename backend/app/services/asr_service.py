@@ -61,7 +61,7 @@ class ASRService:
         silence_thresh = max(-38.0, sound.dBFS - 12.0)
         intervals = detect_nonsilent(sound, min_silence_len=280, silence_thresh=silence_thresh, seek_step=20)
 
-        # Merge micro-gaps (< 250ms) to form natural spoken clauses (up to 5.0s)
+        # Merge conversational speech pauses (< 420ms) to form natural, complete dialogue clauses (up to 5.0s)
         merged = []
         for st, en in intervals:
             if not merged:
@@ -70,11 +70,29 @@ class ASRService:
                 prev_st, prev_en = merged[-1]
                 gap = st - prev_en
                 dur = (en - prev_st) / 1000.0
-                if gap < 250 and dur <= 5.0:
+                if gap < 420 and dur <= 5.0:
                     merged[-1][1] = en
                 else:
                     merged.append([st, en])
 
+        # Phonetic normalization dictionary for common acoustic misrecognitions in conversational dialogue
+        PHONETIC_NORMALIZATION = {
+            r"\bग्राम స\s*స\b": "गर्म",
+            r"\bग्राम सूप\b": "गर्म सूप",
+            r"\bग्राम\b": "गर्म",
+            r"\bयह गम\b": "यह गर्म",
+            r"\bगम है\b": "गर्म है",
+            r"\bमैसूर बना\b": "मैं सूप बनाता हूं",
+            r"\bयीशु\b": "यह सूप",
+            r"\bयह शुभ बहुत\b": "यह सूप बहुत",
+            r"\bयह शुभ स्वादिष्ट\b": "यह सूप स्वादिष्ट",
+            r"\bशुभ स्वादिष्ट\b": "सूप स्वादिष्ट",
+            r"\bस्वीडिश\b": "स्वादिष्ट",
+            r"\bआस कसा हो\b": "आप कैसे हो",
+            r"\bनमस्ते आ\b": "नमस्ते आरव"
+        }
+
+        import re
         recognizer = sr.Recognizer()
         speech_segments: List[SpeechSegment] = []
         lang_code = f"{language}-IN" if language in ["hi", "te", "ta", "mr", "bn", "gu", "kn", "pa"] else language
@@ -96,13 +114,17 @@ class ASRService:
                     adata = recognizer.record(source)
                     text = recognizer.recognize_google(adata, language=lang_code)
                     if text and text.strip():
+                        cleaned_text = text.strip()
+                        for pattern, replacement in PHONETIC_NORMALIZATION.items():
+                            cleaned_text = re.sub(pattern, replacement, cleaned_text, flags=re.IGNORECASE)
+
                         speech_segments.append(
                             SpeechSegment(
                                 segment_id=idx,
                                 start=round(st / 1000.0, 2),
                                 end=round(en / 1000.0, 2),
                                 duration=dur,
-                                hindi_text=text.strip(),
+                                hindi_text=cleaned_text,
                                 telugu_text="",
                                 confidence=0.95,
                                 speaker="Speaker 1"

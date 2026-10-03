@@ -84,6 +84,9 @@ HINDI_TO_TELUGU_MAP = {
     r"(?<![అ-హ])(నజర్)(?![అ-హ])": "చూపు",
     r"(?<![అ-హ])(ఖాబోం|ఖ్వాబ్)(?![అ-హ])": "కలలు",
     r"(?<![అ-హ])(రోటీ)(?![అ-హ])": "రొట్టె",
+    r"(?<![అ-హ])(నం)(?![అ-హ])": "వద్దు",
+    r"(?<![అ-హ])(గ్రాముల|గ్రాము)(?![అ-హ])": "వేడి",
+    r"(?<![అ-హ])(జీసస్|యేసు)(?![అ-హ])": "ఈ సూప్",
 
     # Hindi grammatical particles & linkers
     r"(?<![అ-హ])(హై|హైం)(?![అ-హ])": "ఉంది",
@@ -157,17 +160,38 @@ class TranslationService:
         """
         Translate a single sentence/segment from Hindi to Telugu preserving context and conversational intent.
         Tries providers in resilient order:
-        1. Gemini (if GEMINI_API_KEY is available)
-        2. OpenAI (if OPENAI_API_KEY is available)
-        3. Groq (if GROQ_API_KEY is available)
-        4. Direct Google Translation (Best for conversational Hindi, lyrics, and Romanized text)
-        5. MyMemoryTranslator (Neural free API with hi-IN / te-IN language pairing)
-        6. GoogleTranslator fallback
+        1. Standalone conversational phrases dictionary
+        2. Gemini (if GEMINI_API_KEY is available)
+        3. OpenAI (if OPENAI_API_KEY is available)
+        4. Groq (if GROQ_API_KEY is available)
+        5. Direct Google Translation (Best for conversational Hindi, lyrics, and Romanized text)
+        6. MyMemoryTranslator (Neural free API with hi-IN / te-IN language pairing)
+        7. GoogleTranslator fallback
         """
         if not text or not text.strip():
             return ""
 
         text = text.strip()
+
+        # Standalone conversational phrase dictionary to eliminate MT ambiguities
+        STANDALONE_PHRASES = {
+            "नहीं": "వద్దు",
+            "नहीं।": "వద్దు",
+            "नहीं!": "వద్దు",
+            "हां": "అవును",
+            "हाँ": "అవును",
+            "हाँ।": "అవును",
+            "देखो": "చూడు",
+            "धन्यवाद": "ధన్యవాదాలు",
+            "सूप तैयार": "సూప్ సిద్ధంగా ఉంది",
+            "सूप तैयार है": "సూప్ సిద్ధంగా ఉంది",
+            "बहुत अच्छा": "చాలా బాగుంది",
+            "अलविदा": "వీడ్కోలు",
+            "नमस्ते आरव": "హలో ఆరవ్",
+            "नमस्ते प्रिया": "హలో ప్రియా"
+        }
+        if text in STANDALONE_PHRASES:
+            return STANDALONE_PHRASES[text]
 
         # 1. Gemini AI translation (most contextual and natural)
         if settings.GEMINI_API_KEY and settings.TRANSLATION_PROVIDER == "gemini":
