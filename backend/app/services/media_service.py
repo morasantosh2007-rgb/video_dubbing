@@ -125,6 +125,22 @@ class MediaService:
         return output_wav_path
 
     @classmethod
+    def isolate_vocal_frequencies(cls, input_wav: Path, output_wav: Path) -> Path:
+        """Filter audio to vocal formant range (200Hz - 3800Hz) to improve ASR in music/songs."""
+        output_wav.parent.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", str(input_wav),
+            "-af", "highpass=f=200,lowpass=f=3800,volume=1.8",
+            "-ar", "16000",
+            "-ac", "1",
+            str(output_wav)
+        ]
+        cls.run_command(cmd)
+        return output_wav
+
+    @classmethod
     def mux_video_audio(cls, original_video_path: Path, new_audio_path: Path, output_video_path: Path) -> Path:
         """
         Mux newly generated Telugu audio with the original video stream.

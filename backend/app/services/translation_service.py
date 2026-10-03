@@ -47,7 +47,8 @@ class TranslationService:
 
         # 4. MyMemory Neural Translation
         try:
-            src = "hi-IN" if source_lang == "hi" else source_lang
+            is_arabic_script = any('\u0600' <= char <= '\u06ff' for char in text)
+            src = "ur-PK" if is_arabic_script else ("hi-IN" if source_lang == "hi" else source_lang)
             tgt = "te-IN" if target_lang == "te" else target_lang
             translated = MyMemoryTranslator(source=src, target=tgt).translate(text)
             if translated and not translated.startswith("MYMEMORY WARNING"):

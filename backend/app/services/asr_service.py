@@ -82,44 +82,128 @@ class ASRService:
 
     @classmethod
     def _transcribe_faster_whisper(cls, audio_path: Path, language: str = "hi") -> List[SpeechSegment]:
+        import re
         model = get_whisper_model()
         logger.info(f"Transcribing {audio_path.name} with faster-whisper (lang={language})...")
 
-        segments, info = model.transcribe(
-            str(audio_path),
-            language=language,
-            task="transcribe",
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=400, speech_pad_ms=200)
-        )
+        # Pattern to filter out pure music notation tokens
+        MUSIC_TOKENS = re.compile(r"^(\[संगीत\]|\[music\]|\(संगीत\)|\(music\)|♪|♫|\[applause\]|\[cheering\]|\s)+$", re.IGNORECASE)
 
-        speech_segments: List[SpeechSegment] = []
-        seg_idx = 1
+        def _extract_segments(raw_segments) -> List[SpeechSegment]:
+            extracted = []
+            idx = 1
+            for seg in raw_segments:
+                text = seg.text.strip()
+                if not text or MUSIC_TOKENS.match(text):
+                    continue
 
-        for seg in segments:
-            text = seg.text.strip()
-            if not text:
-                continue
+                duration = round(seg.end - seg.start, 2)
+                if duration <= 0:
+                    continue
 
-            duration = round(seg.end - seg.start, 2)
-            if duration <= 0:
-                continue
+                confidence = round(float(seg.avg_logprob), 3) if hasattr(seg, "avg_logprob") else None
 
-            confidence = round(float(seg.avg_logprob), 3) if hasattr(seg, "avg_logprob") else None
-
-            speech_segments.append(
-                SpeechSegment(
-                    segment_id=seg_idx,
-                    start=round(seg.start, 2),
-                    end=round(seg.end, 2),
-                    duration=duration,
-                    hindi_text=text,
-                    telugu_text="",
-                    confidence=confidence,
-                    speaker=f"Speaker {(seg_idx % 2) + 1}" if seg_idx > 4 else "Speaker 1"
+                extracted.append(
+                    SpeechSegment(
+                        segment_id=idx,
+                        start=round(seg.start, 2),
+                        end=round(seg.end, 2),
+                        duration=duration,
+                        hindi_text=text,
+                        telugu_text="",
+                        confidence=confidence,
+                        speaker=f"Speaker {(idx % 2) + 1}" if idx > 4 else "Speaker 1"
+                    )
                 )
+                idx += 1
+            return extracted
+
+        # Pass 1: Standard speech decoding with VAD filter (fast & ideal for dialogues/speech)
+        try:
+            logger.info("Pass 1: Attempting transcription with VAD filter...")
+            raw_segs1, _ = model.transcribe(
+                str(audio_path),
+                language=language,
+                task="transcribe",
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=300, speech_pad_ms=250),
+                initial_prompt="यह एक हिंदी संवाद या गीत है।"
             )
-            seg_idx += 1
+            speech_segments = _extract_segments(raw_segs1)
+            if speech_segments:
+                max_seg_duration = max(s.duration for s in speech_segments)
+                # If audio was collapsed into 1 or 2 mega-segments with music, fallback to fine-grained song acoustic decoding
+                if len(speech_segments) <= 2 and max_seg_duration > 20.0:
+                    logger.info(f"Pass 1 collapsed audio into {len(speech_segments)} long segment(s) ({max_seg_duration}s). Song/music detected. Switching to fine-grained acoustic decoding...")
+                else:
+                    logger.info(f"Pass 1 (VAD) succeeded: {len(speech_segments)} speech segments detected.")
+                    return speech_segments
+        except Exception as e:
+            logger.warning(f"Pass 1 (VAD) error: {e}")
+
+        # Pass 2: Full acoustic decoding without VAD (essential for songs, singing, rap, and videos with heavy background music)
+        try:
+            logger.info("Pass 2: VAD yielded 0 segments (song/music detected). Retrying with full acoustic decoding (vad_filter=False)...")
+            raw_segs2, _ = model.transcribe(
+                str(audio_path),
+                language=language,
+                task="transcribe",
+                vad_filter=False,
+                condition_on_previous_text=False,
+                beam_size=5,
+                best_of=5,
+                initial_prompt="यह एक हिंदी गीत या संवाद है।"
+            )
+            speech_segments = _extract_segments(raw_segs2)
+            if speech_segments:
+                logger.info(f"Pass 2 (Song/Music Mode) succeeded: {len(speech_segments)} lyrical/speech segments detected.")
+                return speech_segments
+        except Exception as e:
+            logger.warning(f"Pass 2 (Song Mode) error: {e}")
+
+        # Pass 3: Vocal frequency bandpass isolation (200Hz - 3800Hz) to separate vocals from heavy instruments/drums
+        enhanced_path = audio_path.parent / f"vocal_enhanced_{audio_path.name}"
+        try:
+            logger.info("Pass 3: Isolating vocal formant frequencies with FFmpeg bandpass filter...")
+            from app.services.media_service import MediaService
+            MediaService.isolate_vocal_frequencies(audio_path, enhanced_path)
+            raw_segs3, _ = model.transcribe(
+                str(enhanced_path),
+                language=language,
+                task="transcribe",
+                vad_filter=False,
+                condition_on_previous_text=False,
+                beam_size=5
+            )
+            speech_segments = _extract_segments(raw_segs3)
+            if speech_segments:
+                logger.info(f"Pass 3 (Vocal-Isolated Mode) succeeded: {len(speech_segments)} segments detected.")
+                return speech_segments
+        except Exception as e:
+            logger.warning(f"Pass 3 (Vocal-Isolated Mode) error: {e}")
+        finally:
+            if enhanced_path.exists():
+                try:
+                    enhanced_path.unlink()
+                except Exception:
+                    pass
+
+        # Pass 4: Auto-detect language (for code-mixed, Hinglish, or dialect songs)
+        try:
+            logger.info("Pass 4: Retrying with auto-language detection...")
+            raw_segs4, _ = model.transcribe(
+                str(audio_path),
+                language=None,
+                task="transcribe",
+                vad_filter=False,
+                condition_on_previous_text=False
+            )
+            speech_segments = _extract_segments(raw_segs4)
+            if speech_segments:
+                logger.info(f"Pass 4 (Auto-Detect Mode) succeeded: {len(speech_segments)} segments detected.")
+                return speech_segments
+        except Exception as e:
+            logger.warning(f"Pass 4 error: {e}")
 
         logger.info(f"Detected {len(speech_segments)} speech segments via faster-whisper")
         return speech_segments

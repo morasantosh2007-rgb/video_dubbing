@@ -176,7 +176,7 @@ class JobStore:
             cursor.execute("""
                 UPDATE jobs
                 SET status = ?, progress = 100, message = 'Dubbing completed successfully!',
-                    output_video_path = ?, updated_at = ?
+                    output_video_path = ?, error_message = NULL, updated_at = ?
                 WHERE job_id = ?
             """, (JobStatus.COMPLETED.value, str(output_path), now, job_id))
             conn.commit()

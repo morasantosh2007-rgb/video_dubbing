@@ -59,7 +59,11 @@ class DubbingPipeline:
             segments = ASRService.transcribe(audio_16k, language=job.settings.source_language)
 
             if not segments:
-                raise ValueError("No recognizable Hindi speech was detected in the video audio.")
+                logger.info(f"[{job_id}] No vocal lyrics or speech detected across all recognition passes. Preserving original video audio.")
+                shutil.copy(original_video, output_video)
+                job_store.update_status(job_id, JobStatus.COMPLETED, 100, "No vocal lyrics or dialogue detected. Original audio track preserved intact.")
+                job_store.set_completed(job_id, output_video)
+                return
 
             job_store.update_segments(job_id, segments)
 
