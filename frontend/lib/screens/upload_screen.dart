@@ -21,7 +21,7 @@ class _UploadScreenState extends State<UploadScreen> {
   List<VoiceOption> _voices = [];
   String _selectedVoiceId = 'te-IN-MohanNeural';
   double _speakingRate = 1.0;
-  bool _preserveBackground = true;
+  bool _preserveBackground = false;
   double _duckingDb = -12.0;
 
   bool _isUploading = false;
@@ -315,8 +315,11 @@ class _UploadScreenState extends State<UploadScreen> {
           // Preserve Background Audio Switch
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Preserve Background Audio & Ambience', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-            subtitle: const Text('Keeps music, effects, and ambient sounds while ducking them under Telugu speech.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+            title: const Text('Preserve Background Ambience (Music & Effects)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            subtitle: const Text(
+              'Off (Recommended): 100% pure Telugu speech with zero original audio bleed.\nOn: Suppresses original vocals and ducks ambience under Telugu speech.',
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+            ),
             value: _preserveBackground,
             activeThumbColor: AppTheme.accent,
             onChanged: (val) => setState(() => _preserveBackground = val),

@@ -166,29 +166,35 @@ class AudioSyncService:
         speech_track: Path,
         segments: List[SpeechSegment],
         output_mixed_audio: Path,
-        preserve_background: bool = True,
+        preserve_background: bool = False,
         ducking_db: float = -12.0
     ) -> Path:
         """
-        Professional audio mixing:
-        - Duck original background audio while dialogue is active to keep speech crisp.
-        - Preserve original background music, effects, and ambient sounds during non-speech intervals.
-        - Normalize final loudness with EBU R128 (loudnorm).
+        Audio mixing & finalization:
+        - When preserve_background is False (Default - Clean Dubbing):
+          Outputs 100% pure, crystal-clear Telugu speech track with EBU R128 loudness normalization.
+          Zero original audio or Hindi vocal bleed.
+        - When preserve_background is True:
+          Applies center-channel vocal phase cancellation to remove original Hindi speech/singing,
+          ducks ambient background heavily under Telugu speech, boosts Telugu dialogue (+2dB),
+          and normalizes final broadcast loudness.
         """
         output_mixed_audio.parent.mkdir(parents=True, exist_ok=True)
-        work_dir = output_mixed_audio.parent
-        raw_mix_path = work_dir / "raw_mixed.wav"
 
         if preserve_background and original_stereo_audio.exists():
-            logger.info("Applying dynamic FFmpeg sidechain ducking to preserve background audio...")
-            # Use sidechaincompress to duck background audio when speech track is active
+            logger.info("Preserving background ambience with center-channel Hindi vocal cancellation...")
+            # 1. pan=stereo|c0=c0-c1|c1=c1-c0 removes centered vocals/dialogue while keeping stereo music & ambient effects
+            # 2. sidechaincompress ducks residual background heavily when Telugu speech is active
+            # 3. amix mixes vocal-canceled background at 15% with boosted Telugu speech at 140%
             cmd = [
                 "ffmpeg", "-y",
                 "-i", str(original_stereo_audio),
                 "-i", str(speech_track),
                 "-filter_complex",
-                "[0:a][1:a]sidechaincompress=threshold=0.08:ratio=5:attack=20:release=300[ducked];"
-                "[ducked][1:a]amix=inputs=2:weights=0.8 1.3[mixed];"
+                "[0:a]pan=stereo|c0=c0-c1|c1=c1-c0,volume=0.25[karaoke_bg];"
+                "[karaoke_bg][1:a]sidechaincompress=threshold=0.03:ratio=10:attack=10:release=200[ducked];"
+                "[1:a]volume=1.4[boosted_speech];"
+                "[ducked][boosted_speech]amix=inputs=2:weights=0.15 1.4:dropout_transition=2[mixed];"
                 "[mixed]loudnorm=I=-16:TP=-1.5:LRA=11[out]",
                 "-map", "[out]",
                 "-ar", "48000",
@@ -197,10 +203,12 @@ class AudioSyncService:
             ]
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             if res.returncode == 0:
+                logger.info("Successfully rendered background-preserved audio with vocal cancellation.")
                 return output_mixed_audio
-            logger.warning(f"FFmpeg sidechain ducking failed ({res.stderr}), falling back to speech track...")
+            logger.warning(f"Vocal cancellation ducking failed ({res.stderr}), falling back to clean speech track...")
 
-        # Fallback / Speech only with loudness normalization
+        # Clean Dubbing Mode (100% Pure Telugu Speech - No Hindi bleed)
+        logger.info("Rendering Clean Telugu Dubbed Audio track (pure Telugu speech)...")
         norm_cmd = [
             "ffmpeg", "-y",
             "-i", str(speech_track),

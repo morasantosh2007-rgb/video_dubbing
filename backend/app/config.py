@@ -52,7 +52,7 @@ class Settings:
 
     # Audio Mixing Configuration
     BACKGROUND_DUCKING_DB: float = float(os.getenv("BACKGROUND_DUCKING_DB", "-12.0"))
-    PRESERVE_BACKGROUND_AUDIO: bool = os.getenv("PRESERVE_BACKGROUND_AUDIO", "true").lower() == "true"
+    PRESERVE_BACKGROUND_AUDIO: bool = os.getenv("PRESERVE_BACKGROUND_AUDIO", "false").lower() == "true"
 
     # CORS
     CORS_ORIGINS: List[str] = ["*"]

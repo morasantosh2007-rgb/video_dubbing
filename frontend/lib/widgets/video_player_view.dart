@@ -4,11 +4,13 @@ import 'package:video_player/video_player.dart';
 class VideoPlayerView extends StatefulWidget {
   final String videoUrl;
   final String title;
+  final bool isActive;
 
   const VideoPlayerView({
     super.key,
     required this.videoUrl,
     required this.title,
+    this.isActive = true,
   });
 
   @override
@@ -57,6 +59,10 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
         _hasError = false;
       });
       _initPlayer();
+    } else if (oldWidget.isActive && !widget.isActive) {
+      if (_isInitialized && _controller.value.isPlaying) {
+        _controller.pause();
+      }
     }
   }
 

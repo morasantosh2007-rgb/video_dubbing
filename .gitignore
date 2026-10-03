@@ -38,6 +38,7 @@ frontend/ios/Flutter/flutter_export_environment.sh
 frontend/android/.gradle/
 frontend/android/local.properties
 
-# OS
+# OS & Editors
 .DS_Store
 Thumbs.db
+.vscode/

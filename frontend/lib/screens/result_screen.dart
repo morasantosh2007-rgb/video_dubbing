@@ -26,6 +26,9 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _loadJob();
   }
 
@@ -213,10 +216,12 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
                               VideoPlayerView(
                                 videoUrl: dubbedUrl,
                                 title: 'Telugu Dubbed Video',
+                                isActive: _tabController.index == 0,
                               ),
                               VideoPlayerView(
                                 videoUrl: origUrl,
                                 title: 'Original Hindi Video',
+                                isActive: _tabController.index == 1,
                               ),
                             ],
                           ),

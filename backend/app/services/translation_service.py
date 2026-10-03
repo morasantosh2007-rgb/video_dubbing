@@ -45,7 +45,15 @@ class TranslationService:
             except Exception as e:
                 logger.warning(f"Groq translation failed ({e}), trying fallback...")
 
-        # 4. MyMemory Neural Translation
+        # 4. Direct Google Translation (Best for conversational Hindi, lyrics, and Romanized text)
+        try:
+            gtx_res = cls._translate_google_gtx(text, source_lang, target_lang)
+            if gtx_res:
+                return gtx_res
+        except Exception as e:
+            logger.debug(f"Google GTX translation failed ({e}), trying MyMemory...")
+
+        # 5. MyMemory Neural Translation
         try:
             is_arabic_script = any('\u0600' <= char <= '\u06ff' for char in text)
             src = "ur-PK" if is_arabic_script else ("hi-IN" if source_lang == "hi" else source_lang)
@@ -56,7 +64,7 @@ class TranslationService:
         except Exception as e:
             logger.debug(f"MyMemory translation failed: {e}")
 
-        # 5. Google Web Translator fallback
+        # 6. Google Web Translator fallback
         try:
             translated = GoogleTranslator(source=source_lang, target=target_lang).translate(text)
             if translated:
@@ -67,6 +75,40 @@ class TranslationService:
         # Final fallback: return original text if all failed
         logger.error(f"All translation providers failed for text: {text}")
         return text
+
+    @classmethod
+    def _translate_google_gtx(cls, text: str, source_lang: str = "hi", target_lang: str = "te") -> Optional[str]:
+        import json
+        import urllib.parse
+        import urllib.request
+
+        # Detect if text is mostly Latin/Romanized or Devanagari
+        is_devanagari = any('\u0900' <= char <= '\u097f' for char in text)
+        src = "hi" if is_devanagari else "auto"
+        tgt = target_lang
+
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q=" + urllib.parse.quote(text)
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            translated_parts = [s[0] for s in data[0] if s[0]]
+            res = "".join(translated_parts).strip()
+
+            # Ensure output contains Telugu script if target_lang is 'te'
+            if res and target_lang == "te" and not any('\u0c00' <= char <= '\u0c7f' for char in res):
+                alt_src = "auto" if src == "hi" else "hi"
+                alt_url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={alt_src}&tl={tgt}&dt=t&q=" + urllib.parse.quote(text)
+                alt_req = urllib.request.Request(alt_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                with urllib.request.urlopen(alt_req, timeout=5) as alt_resp:
+                    alt_data = json.loads(alt_resp.read().decode("utf-8"))
+                    alt_res = "".join([s[0] for s in alt_data[0] if s[0]]).strip()
+                    if alt_res:
+                        return alt_res
+
+            return res if res else None
 
     @classmethod
     def translate_segments(cls, segments: List[SpeechSegment], source_lang: str = "hi", target_lang: str = "te") -> List[SpeechSegment]:

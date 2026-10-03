@@ -94,7 +94,8 @@ class DubbingPipeline:
 
             # Step 7: MIXING_AUDIO
             logger.info(f"[{job_id}] Step 7: Mixing audio...")
-            job_store.update_status(job_id, JobStatus.MIXING_AUDIO, 85, "Preserving background audio and applying ducking...")
+            mix_msg = "Preserving background audio and applying vocal ducking..." if job.settings.preserve_background else "Finalizing clean Telugu audio track..."
+            job_store.update_status(job_id, JobStatus.MIXING_AUDIO, 85, mix_msg)
             final_audio = work_dir / "final_dubbed_audio.wav"
             AudioSyncService.mix_final_audio(
                 original_stereo_audio=original_stereo,

@@ -16,10 +16,27 @@ logging.basicConfig(
 
 logger = logging.getLogger("dubbing_app")
 
+import asyncio
 from contextlib import asynccontextmanager
+
+def silence_event_loop_closed_exceptions(loop, context):
+    exception = context.get("exception")
+    # Suppress harmless Windows Proactor socket reset on client disconnect/seek (HTTP 206)
+    if isinstance(exception, ConnectionResetError) or (
+        isinstance(exception, OSError) and getattr(exception, "winerror", None) == 10054
+    ):
+        return
+    loop.default_exception_handler(context)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Register Windows asyncio exception handler to silence WinError 10054
+    try:
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(silence_event_loop_closed_exceptions)
+    except Exception:
+        pass
+
     logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}")
     logger.info(f"Storage directories initialized: {settings.DATA_DIR}")
     logger.info(f"Configured ASR Provider: {settings.ASR_PROVIDER}")
