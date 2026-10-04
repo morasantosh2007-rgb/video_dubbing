@@ -137,6 +137,145 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
 
+  void _showServerConfigDialog() {
+    final controller = TextEditingController(text: ApiService.baseUrl);
+    bool testing = false;
+    String? testResult;
+    bool? testSuccess;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: AppTheme.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: AppTheme.border),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.wifi_tethering, color: AppTheme.primaryLight, size: 24),
+              SizedBox(width: 10),
+              Text('Server Connection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Set the backend server address (IP and port):',
+                  style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    labelText: 'Backend URL',
+                    hintText: 'http://192.168.29.46:8000',
+                    prefixIcon: Icon(Icons.link, size: 20),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Quick Presets:',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    ActionChip(
+                      label: const Text('My PC Wi-Fi (192.168.29.46)', style: TextStyle(fontSize: 11)),
+                      onPressed: () => setDialogState(() => controller.text = 'http://192.168.29.46:8000'),
+                    ),
+                    ActionChip(
+                      label: const Text('Android Emulator (10.0.2.2)', style: TextStyle(fontSize: 11)),
+                      onPressed: () => setDialogState(() => controller.text = 'http://10.0.2.2:8000'),
+                    ),
+                    ActionChip(
+                      label: const Text('Localhost (127.0.0.1)', style: TextStyle(fontSize: 11)),
+                      onPressed: () => setDialogState(() => controller.text = 'http://127.0.0.1:8000'),
+                    ),
+                  ],
+                ),
+                if (testResult != null) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: (testSuccess == true ? AppTheme.accent : Colors.redAccent).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: testSuccess == true ? AppTheme.accent : Colors.redAccent,
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          testSuccess == true ? Icons.check_circle : Icons.error_outline,
+                          size: 18,
+                          color: testSuccess == true ? AppTheme.accent : Colors.redAccent,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            testResult!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: testSuccess == true ? AppTheme.accent : Colors.redAccent,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: testing
+                  ? null
+                  : () async {
+                      setDialogState(() {
+                        testing = true;
+                        testResult = 'Testing connection...';
+                        testSuccess = null;
+                      });
+                      final ok = await ApiService.checkHealth(controller.text.trim());
+                      setDialogState(() {
+                        testing = false;
+                        testSuccess = ok;
+                        testResult = ok
+                            ? 'Connected successfully! (Backend healthy)'
+                            : 'Connection failed. Ensure backend is running.';
+                      });
+                    },
+              child: testing
+                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Test Connection'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await ApiService.updateBaseUrl(controller.text.trim());
+                if (mounted) {
+                  Navigator.pop(ctx);
+                  _checkStatusAndLoadJobs();
+                }
+              },
+              child: const Text('Save & Connect'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -171,37 +310,43 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.only(right: 12),
             child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _backendOnline
-                      ? AppTheme.accent.withOpacity(0.15)
-                      : Colors.redAccent.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: _backendOnline ? AppTheme.accent : Colors.redAccent,
-                    width: 1,
+              child: InkWell(
+                onTap: _showServerConfigDialog,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _backendOnline
+                        ? AppTheme.accent.withOpacity(0.15)
+                        : Colors.redAccent.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _backendOnline ? AppTheme.accent : Colors.redAccent,
+                      width: 1,
+                    ),
                   ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircleAvatar(
-                      radius: 4,
-                      backgroundColor: _backendOnline ? AppTheme.accent : Colors.redAccent,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      _backendOnline ? 'Backend Online' : 'Connecting...',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _backendOnline ? AppTheme.accent : Colors.redAccent,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircleAvatar(
+                        radius: 4,
+                        backgroundColor: _backendOnline ? AppTheme.accent : Colors.redAccent,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 6),
+                      Text(
+                        _backendOnline ? 'Backend Online' : 'Connecting...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _backendOnline ? AppTheme.accent : Colors.redAccent,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.tune, size: 14, color: AppTheme.textSecondary),
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -1,21 +1,56 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/job_model.dart';
 
 class ApiService {
-  // Default development URL; can be dynamically overridden or set via environment
+  static const String _prefKey = 'dubai_backend_base_url';
+
+  // Default URL: on Android devices, defaults to PC Wi-Fi IP; can be dynamically edited in UI
   static String baseUrl = kIsWeb
       ? 'http://127.0.0.1:8000'
       : (defaultTargetPlatform == TargetPlatform.android
-          ? 'http://10.0.2.2:8000'
+          ? 'http://192.168.29.46:8000'
           : 'http://127.0.0.1:8000');
 
   static String get apiPrefix => '$baseUrl/api';
 
-  static Future<bool> checkHealth() async {
+  static Future<void> init() async {
     try {
-      final res = await http.get(Uri.parse('$apiPrefix/health')).timeout(const Duration(seconds: 4));
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_prefKey);
+      if (saved != null && saved.trim().isNotEmpty) {
+        baseUrl = saved.trim();
+      }
+    } catch (e) {
+      debugPrint('Error loading saved baseUrl: $e');
+    }
+  }
+
+  static Future<void> updateBaseUrl(String newUrl) async {
+    String clean = newUrl.trim();
+    if (clean.endsWith('/')) {
+      clean = clean.substring(0, clean.length - 1);
+    }
+    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+      clean = 'http://$clean';
+    }
+    baseUrl = clean;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefKey, clean);
+    } catch (e) {
+      debugPrint('Error saving baseUrl: $e');
+    }
+  }
+
+  static Future<bool> checkHealth([String? overrideUrl]) async {
+    try {
+      final target = overrideUrl != null
+          ? (overrideUrl.endsWith('/') ? '${overrideUrl}api/health' : '$overrideUrl/api/health')
+          : '$apiPrefix/health';
+      final res = await http.get(Uri.parse(target)).timeout(const Duration(seconds: 4));
       return res.statusCode == 200;
     } catch (_) {
       return false;
