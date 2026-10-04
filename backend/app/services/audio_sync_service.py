@@ -21,8 +21,8 @@ class AudioSyncService:
         tempo_ratio < 1.0 slows down audio (longer duration).
         """
         output_wav.parent.mkdir(parents=True, exist_ok=True)
-        # Clamped to safe musical bounds (supports up to 1.65x for fast Hindi speech)
-        clamped_tempo = max(0.65, min(1.65, tempo_ratio))
+        # Clamped to safe musical bounds (supports up to 1.80x for rapid speech without distortion)
+        clamped_tempo = max(0.65, min(1.80, tempo_ratio))
 
         cmd = [
             "ffmpeg",
@@ -66,9 +66,9 @@ class AudioSyncService:
         Matches the original Hindi duration using intelligent multi-pass adaptation:
         1. Natural TTS generation
         2. Duration ratio measurement with headroom consideration
-        3. Rate-optimized regeneration if significantly off (up to 1.45x for fast speech)
+        3. Rate-optimized regeneration if significantly off (up to 1.60x for rapid/dense speech)
         4. Fine pitch-preserved time-stretching
-        5. Natural lead-in/lead-out padding without syllable cutoffs
+        5. Natural lead-in/lead-out padding without syllable truncation
         """
         seg_id = segment.segment_id
         target_dur = max(0.4, segment.duration)
@@ -91,9 +91,9 @@ class AudioSyncService:
         # 2. If discrepancy is large, re-generate with natural speech rate factor
         if initial_dur > target_dur:
             if initial_dur > max_dur:
-                rate_factor = min(1.45, round(initial_dur / max_dur, 2))
+                rate_factor = min(1.60, round(initial_dur / max_dur, 2))
             else:
-                rate_factor = min(1.35, round(initial_dur / target_dur, 2))
+                rate_factor = min(1.40, round(initial_dur / target_dur, 2))
 
             if rate_factor > 1.05:
                 logger.info(f"Segment #{seg_id}: Re-generating TTS with rate_factor={rate_factor:.2f}")
@@ -119,17 +119,17 @@ class AudioSyncService:
 
         final_seg_path = work_dir / f"final_seg_{seg_id}.wav"
 
-        # Allow up to 300ms natural tail headroom so words are NEVER cut off mid-syllable
-        if current_ms > max_ms + 300:
-            truncated = stretched_audio[:max_ms + 300].fade_out(30)
-            truncated.export(str(final_seg_path), format="wav")
-        elif current_ms > max_ms:
-            # Word finishes comfortably inside inter-speech breath without truncation
-            stretched_audio.fade_out(20).export(str(final_seg_path), format="wav")
-        elif current_ms < target_ms:
-            # Natural human padding: slight lead-in, majority lead-out
+        # Never slice off words: every word, continuation marker, and exclamation must be fully articulated.
+        # If stretched speech is equal or slightly longer than target duration,
+        # it is exported in full with a gentle 25ms end-fade to prevent pops,
+        # comfortably overlaying or trailing into natural inter-sentence breaths.
+        if current_ms >= target_ms:
+            stretched_audio.fade_out(25).export(str(final_seg_path), format="wav")
+        else:
+            # Natural human padding when speech is shorter than video window:
+            # slight lead-in (min 50ms), majority lead-out to center speech naturally
             diff_ms = target_ms - current_ms
-            lead_in = min(80, diff_ms // 4)
+            lead_in = min(60, diff_ms // 4)
             lead_out = diff_ms - lead_in
             padded = (
                 AudioSegment.silent(duration=lead_in, frame_rate=stretched_audio.frame_rate)
@@ -137,8 +137,6 @@ class AudioSyncService:
                 + AudioSegment.silent(duration=lead_out, frame_rate=stretched_audio.frame_rate)
             )
             padded.fade_in(10).fade_out(10).export(str(final_seg_path), format="wav")
-        else:
-            stretched_audio.fade_in(10).fade_out(10).export(str(final_seg_path), format="wav")
 
         return final_seg_path
 

@@ -58,10 +58,11 @@ class ASRService:
         """
         import speech_recognition as sr
         sound = AudioSegment.from_file(str(audio_path))
-        silence_thresh = max(-38.0, sound.dBFS - 12.0)
-        intervals = detect_nonsilent(sound, min_silence_len=280, silence_thresh=silence_thresh, seek_step=20)
+        # Refined threshold (-16dB dynamic headroom) to capture softer exclamations ('wow', 'oh') and continuation words ('aur', 'fir')
+        silence_thresh = max(-42.0, sound.dBFS - 16.0)
+        intervals = detect_nonsilent(sound, min_silence_len=220, silence_thresh=silence_thresh, seek_step=15)
 
-        # Merge conversational speech pauses (< 420ms) to form natural, complete dialogue clauses (up to 5.0s)
+        # Merge conversational speech pauses (< 450ms) to form natural, complete dialogue clauses (up to 5.5s)
         merged = []
         for st, en in intervals:
             if not merged:
@@ -70,7 +71,7 @@ class ASRService:
                 prev_st, prev_en = merged[-1]
                 gap = st - prev_en
                 dur = (en - prev_st) / 1000.0
-                if gap < 420 and dur <= 5.0:
+                if gap < 450 and dur <= 5.5:
                     merged[-1][1] = en
                 else:
                     merged.append([st, en])
@@ -100,11 +101,13 @@ class ASRService:
         idx = 1
         for st, en in merged:
             dur = round((en - st) / 1000.0, 2)
-            if dur < 0.4:
+            # Retain all real human utterances >= 150ms (never drop short exclamations like 'wow', 'wah', 'haan', 'aur')
+            if dur < 0.15:
                 continue
 
-            pad_st = max(0, st - 100)
-            pad_en = min(len(sound), en + 100)
+            # 250ms acoustic padding prevents clipping initial consonants on continuation words or exclamations
+            pad_st = max(0, st - 250)
+            pad_en = min(len(sound), en + 250)
             chunk = sound[pad_st:pad_en]
             chunk_path = settings.TEMP_DIR / f"chunk_ac_{idx}_{round(st/1000.0, 2)}.wav"
             chunk.export(str(chunk_path), format="wav")
@@ -112,7 +115,18 @@ class ASRService:
             try:
                 with sr.AudioFile(str(chunk_path)) as source:
                     adata = recognizer.record(source)
-                    text = recognizer.recognize_google(adata, language=lang_code)
+                    text = None
+                    try:
+                        text = recognizer.recognize_google(adata, language=lang_code)
+                    except sr.UnknownValueError:
+                        # Fallback for English loanwords commonly spoken in Hindi video ('wow', 'super', 'bye', 'hello')
+                        try:
+                            en_text = recognizer.recognize_google(adata, language="en-IN")
+                            if en_text and en_text.strip():
+                                text = en_text.strip()
+                        except Exception:
+                            pass
+
                     if text and text.strip():
                         cleaned_text = text.strip()
                         for pattern, replacement in PHONETIC_NORMALIZATION.items():
@@ -172,11 +186,18 @@ class ASRService:
         try:
             logger.info(f"Checking acoustic speech intervals for {audio_path.name}...")
             acoustic_segments = cls._transcribe_acoustic_intervals(audio_path, language)
-            if len(acoustic_segments) >= 6:
-                logger.info(f"Acoustic interval detection succeeded: {len(acoustic_segments)} high-precision dialogue segments detected.")
-                return acoustic_segments
+            if acoustic_segments:
+                from pydub import AudioSegment
+                audio_dur = len(AudioSegment.from_file(str(audio_path))) / 1000.0
+                speech_dur = sum(s.duration for s in acoustic_segments)
+                # If we have detected authentic dialogue (at least 3 segments, or short video clip <= 30s with >= 1 segment, or >= 8% speech coverage)
+                if len(acoustic_segments) >= 3 or (audio_dur <= 30.0 and len(acoustic_segments) >= 1) or (speech_dur / max(audio_dur, 1.0) >= 0.08):
+                    logger.info(f"Acoustic interval detection succeeded: {len(acoustic_segments)} high-precision dialogue segments detected (coverage: {speech_dur:.1f}s / {audio_dur:.1f}s).")
+                    return acoustic_segments
+                else:
+                    logger.info(f"Acoustic intervals yielded {len(acoustic_segments)} segment(s) ({speech_dur:.1f}s on {audio_dur:.1f}s audio - continuous song detected). Engaging multi-pass Whisper acoustic decoding...")
             else:
-                logger.info(f"Acoustic intervals yielded {len(acoustic_segments)} segment(s) (continuous song/music detected). Engaging multi-pass Whisper acoustic decoding...")
+                logger.info("Acoustic intervals yielded 0 segments. Engaging multi-pass Whisper acoustic decoding...")
         except Exception as e:
             logger.warning(f"Acoustic interval detection failed ({e}), engaging faster-whisper...")
 
@@ -212,7 +233,9 @@ class ASRService:
 
                 # Filter out hallucination repetition loops & no-speech noise on music/outro
                 no_speech = getattr(seg, "no_speech_prob", 0.0)
-                if no_speech > 0.70:
+                # Allow higher tolerance for short words/exclamations ('वाह', 'wow') where Whisper often assigns higher no_speech_prob
+                max_no_speech = 0.85 if duration < 1.5 else 0.70
+                if no_speech > max_no_speech:
                     continue
 
                 comp_ratio = getattr(seg, "compression_ratio", 1.0)
