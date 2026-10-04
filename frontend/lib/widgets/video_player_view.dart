@@ -8,6 +8,8 @@ class VideoPlayerView extends StatefulWidget {
   final bool isActive;
   final List<SpeechSegment>? segments;
   final bool isTelugu;
+  final ValueChanged<double>? onPositionChanged;
+  final ValueNotifier<double?>? seekNotifier;
 
   const VideoPlayerView({
     super.key,
@@ -16,6 +18,8 @@ class VideoPlayerView extends StatefulWidget {
     this.isActive = true,
     this.segments,
     this.isTelugu = true,
+    this.onPositionChanged,
+    this.seekNotifier,
   });
 
   @override
@@ -38,6 +42,11 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
 
   void _onControllerUpdate() {
     if (!mounted || !_isInitialized) return;
+    final pos = _controller.value.position.inMilliseconds / 1000.0;
+    if (widget.isActive && widget.onPositionChanged != null) {
+      widget.onPositionChanged!(pos);
+    }
+
     if (widget.segments == null || widget.segments!.isEmpty) {
       if (_currentSubtitle.isNotEmpty) {
         setState(() => _currentSubtitle = '');
@@ -45,7 +54,6 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
       return;
     }
 
-    final pos = _controller.value.position.inMilliseconds / 1000.0;
     String matched = '';
     for (final seg in widget.segments!) {
       // Generous reading comfort window: 0.1s lookahead and 0.4s trailing window
@@ -62,12 +70,22 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
     }
   }
 
+  void _handleSeekRequest() {
+    if (!mounted || !_isInitialized) return;
+    final target = widget.seekNotifier?.value;
+    if (target != null && widget.isActive) {
+      _controller.seekTo(Duration(milliseconds: (target * 1000).toInt()));
+      _controller.play();
+    }
+  }
+
   void _initPlayer() async {
     try {
       _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
       await _controller.initialize();
       _controller.setLooping(false);
       _controller.addListener(_onControllerUpdate);
+      widget.seekNotifier?.addListener(_handleSeekRequest);
       if (mounted) {
         setState(() {
           _isInitialized = true;
@@ -86,6 +104,10 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
   @override
   void didUpdateWidget(covariant VideoPlayerView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.seekNotifier != widget.seekNotifier) {
+      oldWidget.seekNotifier?.removeListener(_handleSeekRequest);
+      widget.seekNotifier?.addListener(_handleSeekRequest);
+    }
     if (oldWidget.videoUrl != widget.videoUrl) {
       _controller.removeListener(_onControllerUpdate);
       _controller.dispose();
@@ -109,6 +131,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
 
   @override
   void dispose() {
+    widget.seekNotifier?.removeListener(_handleSeekRequest);
     _controller.removeListener(_onControllerUpdate);
     _controller.dispose();
     super.dispose();

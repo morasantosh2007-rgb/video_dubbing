@@ -54,4 +54,31 @@ void main() {
     expect(segment.formattedStart, '00:02.10');
     expect(segment.speedRatio, 1.05);
   });
+
+  test('Telugu Dubbed Words stream concatenates into cohesive Spotify transcript', () {
+    final segments = [
+      SpeechSegment(
+        segmentId: 1,
+        start: 0.0,
+        end: 2.0,
+        duration: 2.0,
+        hindiText: 'नमस्ते',
+        teluguText: 'నమస్కారం',
+      ),
+      SpeechSegment(
+        segmentId: 2,
+        start: 2.1,
+        end: 5.0,
+        duration: 2.9,
+        hindiText: 'आप कैसे हैं?',
+        teluguText: 'మీరు ఎలా ఉన్నారు?',
+      ),
+    ];
+
+    final fullTelugu = segments.map((s) => s.teluguText.trim()).where((t) => t.isNotEmpty).join(' ');
+    expect(fullTelugu, 'నమస్కారం మీరు ఎలా ఉన్నారు?');
+    expect(fullTelugu.contains('आप'), isFalse);
+    expect(fullTelugu.contains('नमस्ते'), isFalse);
+  });
 }
+

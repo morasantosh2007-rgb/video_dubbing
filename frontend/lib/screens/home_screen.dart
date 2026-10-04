@@ -40,6 +40,103 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _confirmDeleteJob(DubbingJob job) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: AppTheme.border),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_outline, color: Colors.redAccent, size: 24),
+            SizedBox(width: 10),
+            Text(
+              'Delete Project',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Are you sure you want to delete this project?',
+              style: TextStyle(fontSize: 14, color: AppTheme.textPrimary),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceElevated,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                job.originalFilename,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'This will permanently remove the video, audio, and subtitle files from the server.',
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.delete_forever, size: 18),
+            label: const Text('Delete'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final success = await ApiService.deleteJob(job.jobId);
+      if (mounted) {
+        if (success) {
+          setState(() {
+            _recentJobs.removeWhere((j) => j.jobId == job.jobId);
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Project deleted successfully'),
+              backgroundColor: AppTheme.accent,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to delete project'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -386,7 +483,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: isDone ? AppTheme.accent : AppTheme.textSecondary,
               ),
             ),
-            trailing: const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, size: 20, color: Colors.white54),
+                  tooltip: 'Delete project',
+                  hoverColor: Colors.redAccent.withOpacity(0.18),
+                  splashRadius: 20,
+                  onPressed: () => _confirmDeleteJob(job),
+                ),
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right, color: AppTheme.textSecondary, size: 20),
+              ],
+            ),
             onTap: () {
               if (job.status == JobStatus.COMPLETED) {
                 Navigator.push(

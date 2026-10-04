@@ -111,6 +111,17 @@ class ApiService {
     return [];
   }
 
+  static Future<bool> deleteJob(String jobId) async {
+    try {
+      final res = await http.delete(Uri.parse('$apiPrefix/jobs/$jobId'));
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error deleting job $jobId: $e');
+      return false;
+    }
+  }
+
+
   static String getDubbedVideoUrl(String jobId, {bool burnedSubtitles = false}) =>
       burnedSubtitles ? '$apiPrefix/jobs/$jobId/video/subtitled' : '$apiPrefix/jobs/$jobId/video/dubbed';
   static String getSubtitledVideoUrl(String jobId) => '$apiPrefix/jobs/$jobId/video/subtitled';

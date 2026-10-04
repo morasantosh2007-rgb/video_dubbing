@@ -37,3 +37,27 @@ def test_list_voices():
 def test_get_nonexistent_job():
     response = client.get(f"{settings.API_PREFIX}/jobs/nonexistent123")
     assert response.status_code == 404
+
+def test_delete_job():
+    # Non-existent job
+    res_404 = client.delete(f"{settings.API_PREFIX}/jobs/nonexistent_del_job")
+    assert res_404.status_code == 404
+
+    # Existing job
+    from pathlib import Path
+    from app.storage.job_store import job_store
+    from app.models.schemas import JobSettings
+
+    job_store.create_job(
+        job_id="test_delete_id_999",
+        original_filename="sample.mp4",
+        original_video_path=Path("sample.mp4"),
+        job_settings=JobSettings(source_language="hi", target_language="te"),
+    )
+    assert job_store.get_job("test_delete_id_999") is not None
+
+    res_del = client.delete(f"{settings.API_PREFIX}/jobs/test_delete_id_999")
+    assert res_del.status_code == 200
+    assert "deleted successfully" in res_del.json()["message"]
+    assert job_store.get_job("test_delete_id_999") is None
+

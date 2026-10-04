@@ -291,20 +291,34 @@ def stream_subtitles_vtt(job_id: str):
 
 @router.delete("/jobs/{job_id}")
 def delete_job(job_id: str):
-    """Delete a dubbing job and remove files from disk."""
+    """Delete a dubbing job and remove all associated files from disk."""
     job = job_store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
-    # Remove files
+    # Remove specific named files
     orig_path = settings.UPLOAD_DIR / f"{job_id}_{job.original_filename}"
     out_path = settings.OUTPUT_DIR / f"dubbed_{job_id}_{job.original_filename}"
-    for p in (orig_path, out_path):
+    subtitled_path = settings.OUTPUT_DIR / f"subtitled_{job_id}_{job.original_filename}"
+    srt_path = settings.OUTPUT_DIR / f"subtitles_{job_id}_{job.original_filename}.srt"
+    vtt_path = settings.OUTPUT_DIR / f"subtitles_{job_id}_{job.original_filename}.vtt"
+    for p in (orig_path, out_path, subtitled_path, srt_path, vtt_path):
         if p.exists():
             try:
                 p.unlink()
             except Exception:
                 pass
 
+    # Clean any other temp, upload, or output files matching this job_id
+    for directory in (settings.UPLOAD_DIR, settings.OUTPUT_DIR, settings.TEMP_DIR):
+        if directory.exists():
+            for f in directory.glob(f"*{job_id}*"):
+                try:
+                    if f.is_file():
+                        f.unlink()
+                except Exception:
+                    pass
+
     job_store.delete_job(job_id)
     return {"message": f"Job {job_id} deleted successfully"}
+
