@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: dubai-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: ASR_PROVIDER
+        value: faster_whisper
+      - key: WHISPER_MODEL_SIZE
+        value: base
+      - key: TRANSLATION_PROVIDER
+        value: mymemory
+      - key: TTS_PROVIDER
+        value: edge-tts
+      - key: DEFAULT_TELUGU_VOICE
+        value: te-IN-MohanNeural
+      - key: PRESERVE_BACKGROUND_AUDIO
+        value: "true"
+      - key: BACKGROUND_DUCKING_DB
+        value: "-12.0"
