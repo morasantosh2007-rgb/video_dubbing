@@ -1,6 +1,6 @@
 {
-    "name": "dubbing_app",
-    "short_name": "dubbing_app",
+    "name": "DubAi - Hindi to Telugu AI Video Dubbing",
+    "short_name": "DubAi",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

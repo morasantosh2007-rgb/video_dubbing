@@ -13,7 +13,7 @@ class HindiToTeluguDubbingApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Hindi → Telugu AI Video Dubbing',
+      title: 'DubAi - Hindi to Telugu AI Video Dubbing',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: const HomeScreen(),

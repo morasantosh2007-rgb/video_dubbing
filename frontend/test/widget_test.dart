@@ -10,8 +10,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify app brand and hero texts
-    expect(find.text('DubAI'), findsOneWidget);
-    expect(find.text('Hindi → Telugu AI Video Dubbing'), findsWidgets);
+    expect(find.text('DubAi'), findsOneWidget);
+    expect(find.textContaining('Hindi → Telugu'), findsWidgets);
     expect(find.text('Upload Video to Dub'), findsOneWidget);
   });
 
