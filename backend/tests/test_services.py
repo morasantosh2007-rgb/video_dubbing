@@ -34,3 +34,29 @@ def test_audio_time_stretch(tmp_path):
     AudioSyncService.time_stretch_audio(raw_mp3, stretched_wav, tempo_ratio=1.2)
     assert stretched_wav.exists()
     assert stretched_wav.stat().st_size > 0
+
+def test_subtitle_service(tmp_path):
+    from app.services.subtitle_service import SubtitleService
+    segments = [
+        SpeechSegment(
+            segment_id=1,
+            start=1.5,
+            end=3.8,
+            duration=2.3,
+            hindi_text="नमस्ते आप कैसे हैं?",
+            telugu_text="నమస్కారం మీరు ఎలా ఉన్నారు?"
+        )
+    ]
+    srt_file = tmp_path / "test.srt"
+    vtt_file = tmp_path / "test.vtt"
+    SubtitleService.generate_srt(segments, srt_file)
+    SubtitleService.generate_vtt(segments, vtt_file)
+
+    assert srt_file.exists()
+    assert vtt_file.exists()
+    srt_content = srt_file.read_text(encoding="utf-8")
+    assert "00:00:01,500 --> 00:00:03,800" in srt_content
+    assert "నమస్కారం" in srt_content
+    vtt_content = vtt_file.read_text(encoding="utf-8")
+    assert "WEBVTT" in vtt_content
+    assert "00:00:01.500 --> 00:00:03.800" in vtt_content

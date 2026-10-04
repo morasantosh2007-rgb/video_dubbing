@@ -114,4 +114,6 @@ class ApiService {
   static String getDubbedVideoUrl(String jobId) => '$apiPrefix/jobs/$jobId/video/dubbed';
   static String getOriginalVideoUrl(String jobId) => '$apiPrefix/jobs/$jobId/video/original';
   static String getDownloadUrl(String jobId) => '$apiPrefix/jobs/$jobId/download';
+  static String getSrtDownloadUrl(String jobId) => '$apiPrefix/jobs/$jobId/subtitles/srt';
+  static String getVttUrl(String jobId) => '$apiPrefix/jobs/$jobId/subtitles/vtt';
 }

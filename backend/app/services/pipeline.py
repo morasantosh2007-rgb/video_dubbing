@@ -11,6 +11,7 @@ from app.services.asr_service import ASRService
 from app.services.translation_service import TranslationService
 from app.services.tts_service import TTSService
 from app.services.audio_sync_service import AudioSyncService
+from app.services.subtitle_service import SubtitleService
 from app.storage.job_store import job_store
 
 logger = logging.getLogger(__name__)
@@ -106,13 +107,25 @@ class DubbingPipeline:
                 ducking_db=job.settings.ducking_db
             )
 
-            # Step 8: RENDERING
-            logger.info(f"[{job_id}] Step 8: Muxing with original video stream...")
-            job_store.update_status(job_id, JobStatus.RENDERING, 95, "Muxing video stream with new Telugu audio track...")
+            # Step 8: GENERATING_SUBTITLES & RENDERING
+            logger.info(f"[{job_id}] Step 8: Generating refined Telugu subtitles & muxing video...")
+            job_store.update_status(job_id, JobStatus.RENDERING, 92, "Generating broadcast-quality Telugu subtitles (.srt/.vtt)...")
+
+            # Generate refined Telugu subtitles
+            output_srt = settings.OUTPUT_DIR / f"subtitles_{job_id}_{job.original_filename}.srt"
+            output_vtt = settings.OUTPUT_DIR / f"subtitles_{job_id}_{job.original_filename}.vtt"
+            try:
+                SubtitleService.generate_srt(segments, output_srt)
+                SubtitleService.generate_vtt(segments, output_vtt)
+            except Exception as e_sub:
+                logger.warning(f"Failed to generate subtitles: {e_sub}")
+
+            job_store.update_status(job_id, JobStatus.RENDERING, 95, "Muxing video stream with new Telugu audio track & subtitles...")
             MediaService.mux_video_audio(
                 original_video_path=original_video,
                 new_audio_path=final_audio,
-                output_video_path=output_video
+                output_video_path=output_video,
+                subtitle_path=output_srt if output_srt.exists() else None
             )
 
             # Step 9: VALIDATING

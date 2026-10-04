@@ -177,6 +177,8 @@ class DubbingJob {
   final String? errorMessage;
   final String? outputVideoUrl;
   final String? originalVideoUrl;
+  final String? subtitlesSrtUrl;
+  final String? subtitlesVttUrl;
 
   DubbingJob({
     required this.jobId,
@@ -192,6 +194,8 @@ class DubbingJob {
     this.errorMessage,
     this.outputVideoUrl,
     this.originalVideoUrl,
+    this.subtitlesSrtUrl,
+    this.subtitlesVttUrl,
   });
 
   factory DubbingJob.fromJson(Map<String, dynamic> json) {
@@ -216,6 +220,8 @@ class DubbingJob {
       errorMessage: json['error_message'],
       outputVideoUrl: json['output_video_url'],
       originalVideoUrl: json['original_video_url'],
+      subtitlesSrtUrl: json['subtitles_srt_url'],
+      subtitlesVttUrl: json['subtitles_vtt_url'],
     );
   }
 }

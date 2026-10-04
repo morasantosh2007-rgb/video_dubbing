@@ -141,28 +141,59 @@ class MediaService:
         return output_wav
 
     @classmethod
-    def mux_video_audio(cls, original_video_path: Path, new_audio_path: Path, output_video_path: Path) -> Path:
+    def mux_video_audio(
+        cls,
+        original_video_path: Path,
+        new_audio_path: Path,
+        output_video_path: Path,
+        subtitle_path: Optional[Path] = None
+    ) -> Path:
         """
-        Mux newly generated Telugu audio with the original video stream.
+        Mux newly generated Telugu audio (and optional refined Telugu subtitles) with the original video stream.
         PRESERVES original video stream without re-encoding (-c:v copy).
         Encodes audio with high-quality AAC (192kbps).
+        Embeds Telugu subtitles as a selectable soft track (-c:s mov_text).
         """
         output_video_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
+        has_subtitles = subtitle_path is not None and subtitle_path.exists() and subtitle_path.stat().st_size > 0
+
         # Fast direct stream copy
         cmd = [
             "ffmpeg",
             "-y",
             "-i", str(original_video_path),
             "-i", str(new_audio_path),
+        ]
+        if has_subtitles:
+            cmd.extend(["-i", str(subtitle_path)])
+
+        cmd.extend([
             "-c:v", "copy",
             "-c:a", "aac",
             "-b:a", "192k",
+        ])
+
+        if has_subtitles:
+            cmd.extend([
+                "-c:s", "mov_text",
+                "-metadata:s:s:0", "language=tel",
+                "-metadata:s:s:0", "title=Telugu",
+                "-metadata:s:s:0", "handler_name=Telugu",
+            ])
+
+        cmd.extend([
             "-map", "0:v:0",
             "-map", "1:a:0",
+        ])
+        if has_subtitles:
+            cmd.extend(["-map", "2:s:0?"])
+
+        cmd.extend([
             "-shortest",
             str(output_video_path)
-        ]
+        ])
+
         try:
             cls.run_command(cmd)
         except RuntimeError as e:
@@ -173,16 +204,36 @@ class MediaService:
                 "-y",
                 "-i", str(original_video_path),
                 "-i", str(new_audio_path),
+            ]
+            if has_subtitles:
+                fallback_cmd.extend(["-i", str(subtitle_path)])
+
+            fallback_cmd.extend([
                 "-c:v", "libx264",
                 "-preset", "fast",
                 "-crf", "18",
                 "-c:a", "aac",
                 "-b:a", "192k",
+            ])
+            if has_subtitles:
+                fallback_cmd.extend([
+                    "-c:s", "mov_text",
+                    "-metadata:s:s:0", "language=tel",
+                    "-metadata:s:s:0", "title=Telugu",
+                    "-metadata:s:s:0", "handler_name=Telugu",
+                ])
+
+            fallback_cmd.extend([
                 "-map", "0:v:0",
                 "-map", "1:a:0",
+            ])
+            if has_subtitles:
+                fallback_cmd.extend(["-map", "2:s:0?"])
+
+            fallback_cmd.extend([
                 "-shortest",
                 str(output_video_path)
-            ]
+            ])
             cls.run_command(fallback_cmd)
 
         return output_video_path

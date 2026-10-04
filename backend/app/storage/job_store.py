@@ -111,6 +111,9 @@ class JobStore:
 
         out_url = f"/api/jobs/{job_id}/video/dubbed" if row["output_video_path"] else None
         orig_url = f"/api/jobs/{job_id}/video/original" if row["original_video_path"] else None
+        has_telugu = any(s.telugu_text for s in segments)
+        srt_url = f"/api/jobs/{job_id}/subtitles/srt" if has_telugu else None
+        vtt_url = f"/api/jobs/{job_id}/subtitles/vtt" if has_telugu else None
 
         return DubbingJobResponse(
             job_id=row["job_id"],
@@ -125,7 +128,9 @@ class JobStore:
             segments=segments,
             error_message=row["error_message"],
             output_video_url=out_url,
-            original_video_url=orig_url
+            original_video_url=orig_url,
+            subtitles_srt_url=srt_url,
+            subtitles_vtt_url=vtt_url
         )
 
     def update_status(self, job_id: str, status: JobStatus, progress: int, message: str):

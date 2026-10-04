@@ -19,6 +19,7 @@ from app.models.schemas import (
 )
 from app.services.pipeline import DubbingPipeline
 from app.services.tts_service import TTSService
+from app.services.subtitle_service import SubtitleService
 from app.storage.job_store import job_store
 
 logger = logging.getLogger(__name__)
@@ -203,6 +204,46 @@ def download_dubbed_video(job_id: str):
         path,
         media_type="application/octet-stream",
         filename=f"telugu_dubbed_{job.original_filename}"
+    )
+
+@router.get("/jobs/{job_id}/subtitles/srt")
+def download_subtitles_srt(job_id: str):
+    """Download refined broadcast-quality Telugu subtitles in SubRip (.srt) format."""
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    srt_path = settings.OUTPUT_DIR / f"subtitles_{job_id}_{job.original_filename}.srt"
+    if not srt_path.exists():
+        if job.segments and any(s.telugu_text for s in job.segments):
+            SubtitleService.generate_srt(job.segments, srt_path)
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Telugu subtitles not yet available for this job")
+
+    return FileResponse(
+        srt_path,
+        media_type="application/x-subrip; charset=utf-8",
+        filename=f"telugu_subtitles_{job.original_filename}.srt"
+    )
+
+@router.get("/jobs/{job_id}/subtitles/vtt")
+def stream_subtitles_vtt(job_id: str):
+    """Stream refined Telugu subtitles in WebVTT (.vtt) format for web and mobile players."""
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    vtt_path = settings.OUTPUT_DIR / f"subtitles_{job_id}_{job.original_filename}.vtt"
+    if not vtt_path.exists():
+        if job.segments and any(s.telugu_text for s in job.segments):
+            SubtitleService.generate_vtt(job.segments, vtt_path)
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Telugu subtitles not yet available for this job")
+
+    return FileResponse(
+        vtt_path,
+        media_type="text/vtt; charset=utf-8",
+        filename=f"telugu_subtitles_{job.original_filename}.vtt"
     )
 
 @router.delete("/jobs/{job_id}")

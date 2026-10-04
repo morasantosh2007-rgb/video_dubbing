@@ -64,6 +64,22 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
     }
   }
 
+  Future<void> _downloadSubtitles(String format) async {
+    final downloadUrl = format == 'srt'
+        ? ApiService.getSrtDownloadUrl(widget.jobId)
+        : ApiService.getVttUrl(widget.jobId);
+    final uri = Uri.parse(downloadUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not trigger $format subtitle download.')),
+        );
+      }
+    }
+  }
+
   void _copyDownloadLink() {
     final link = ApiService.getDownloadUrl(widget.jobId);
     Clipboard.setData(ClipboardData(text: link));
@@ -217,11 +233,15 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
                                 videoUrl: dubbedUrl,
                                 title: 'Telugu Dubbed Video',
                                 isActive: _tabController.index == 0,
+                                segments: job.segments,
+                                isTelugu: true,
                               ),
                               VideoPlayerView(
                                 videoUrl: origUrl,
                                 title: 'Original Hindi Video',
                                 isActive: _tabController.index == 1,
+                                segments: job.segments,
+                                isTelugu: false,
                               ),
                             ],
                           ),
@@ -277,6 +297,34 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
                             label: const Text('Dub Another Video'),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _downloadSubtitles('srt'),
+                              icon: const Icon(Icons.subtitles_outlined, color: AppTheme.primaryLight, size: 20),
+                              label: const Text('Download Telugu Subtitles (.SRT)', style: TextStyle(fontSize: 13)),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                side: const BorderSide(color: AppTheme.border),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _downloadSubtitles('vtt'),
+                              icon: const Icon(Icons.closed_caption_outlined, color: AppTheme.primaryLight, size: 20),
+                              label: const Text('Download WebVTT (.VTT)', style: TextStyle(fontSize: 13)),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                side: const BorderSide(color: AppTheme.border),
+                              ),
                             ),
                           ),
                         ],

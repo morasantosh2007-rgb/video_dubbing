@@ -69,6 +69,8 @@ class DubbingJobResponse(BaseModel):
     error_message: Optional[str] = None
     output_video_url: Optional[str] = None
     original_video_url: Optional[str] = None
+    subtitles_srt_url: Optional[str] = None
+    subtitles_vtt_url: Optional[str] = None
 
 class VoiceOption(BaseModel):
     voice_id: str
