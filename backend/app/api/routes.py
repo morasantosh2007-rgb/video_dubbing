@@ -174,8 +174,8 @@ def stream_original_video(job_id: str):
     return FileResponse(path, media_type="video/mp4", filename=job.original_filename)
 
 @router.get("/jobs/{job_id}/video/dubbed")
-def stream_dubbed_video(job_id: str):
-    """Stream final synchronized Telugu dubbed video."""
+def stream_dubbed_video(job_id: str, subtitles: Optional[str] = None):
+    """Stream final synchronized Telugu dubbed video. Pass ?subtitles=burned for hardcoded subtitles."""
     job = job_store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
@@ -184,19 +184,57 @@ def stream_dubbed_video(job_id: str):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Job is not completed yet (current status: {job.status})"
         )
+
+    # Check if user requested burned-in subtitles
+    if subtitles == "burned":
+        subtitled_path = settings.OUTPUT_DIR / f"dubbed_subtitled_{job_id}_{job.original_filename}"
+        if not subtitled_path.exists():
+            srt_path = settings.OUTPUT_DIR / f"subtitles_{job_id}_{job.original_filename}.srt"
+            clean_path = settings.OUTPUT_DIR / f"dubbed_{job_id}_{job.original_filename}"
+            if srt_path.exists() and clean_path.exists():
+                try:
+                    MediaService.burn_subtitles(clean_path, srt_path, subtitled_path)
+                except Exception as e:
+                    logger.warning(f"Could not generate subtitled video on-the-fly: {e}")
+        if subtitled_path.exists():
+            return FileResponse(subtitled_path, media_type="video/mp4", filename=f"telugu_subtitled_{job.original_filename}")
+
     path = settings.OUTPUT_DIR / f"dubbed_{job_id}_{job.original_filename}"
     if not path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dubbed video file not found")
     return FileResponse(path, media_type="video/mp4", filename=f"telugu_dubbed_{job.original_filename}")
 
+@router.get("/jobs/{job_id}/video/subtitled")
+def stream_subtitled_video(job_id: str):
+    """Stream final Telugu dubbed video with permanently visible Telugu subtitles."""
+    return stream_dubbed_video(job_id, subtitles="burned")
+
 @router.get("/jobs/{job_id}/download")
-def download_dubbed_video(job_id: str):
-    """Download final dubbed Telugu video file."""
+def download_dubbed_video(job_id: str, subtitles: Optional[str] = None):
+    """Download final dubbed Telugu video file. Pass ?subtitles=burned for hardcoded subtitles."""
     job = job_store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job is not completed")
+
+    if subtitles == "burned":
+        subtitled_path = settings.OUTPUT_DIR / f"dubbed_subtitled_{job_id}_{job.original_filename}"
+        if not subtitled_path.exists():
+            srt_path = settings.OUTPUT_DIR / f"subtitles_{job_id}_{job.original_filename}.srt"
+            clean_path = settings.OUTPUT_DIR / f"dubbed_{job_id}_{job.original_filename}"
+            if srt_path.exists() and clean_path.exists():
+                try:
+                    MediaService.burn_subtitles(clean_path, srt_path, subtitled_path)
+                except Exception as e:
+                    logger.warning(f"Could not generate subtitled video for download: {e}")
+        if subtitled_path.exists():
+            return FileResponse(
+                subtitled_path,
+                media_type="application/octet-stream",
+                filename=f"telugu_subtitled_{job.original_filename}"
+            )
+
     path = settings.OUTPUT_DIR / f"dubbed_{job_id}_{job.original_filename}"
     if not path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Output file not found")
@@ -205,6 +243,11 @@ def download_dubbed_video(job_id: str):
         media_type="application/octet-stream",
         filename=f"telugu_dubbed_{job.original_filename}"
     )
+
+@router.get("/jobs/{job_id}/download/subtitled")
+def download_subtitled_video(job_id: str):
+    """Download final dubbed Telugu video file with permanently visible Telugu subtitles."""
+    return download_dubbed_video(job_id, subtitles="burned")
 
 @router.get("/jobs/{job_id}/subtitles/srt")
 def download_subtitles_srt(job_id: str):

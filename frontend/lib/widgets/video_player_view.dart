@@ -48,7 +48,8 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
     final pos = _controller.value.position.inMilliseconds / 1000.0;
     String matched = '';
     for (final seg in widget.segments!) {
-      if (pos >= seg.start && pos <= (seg.end + 0.25)) {
+      // Generous reading comfort window: 0.1s lookahead and 0.4s trailing window
+      if (pos >= (seg.start - 0.1) && pos <= (seg.end + 0.4)) {
         matched = widget.isTelugu ? seg.teluguText : seg.hindiText;
         break;
       }
@@ -94,9 +95,14 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
         _currentSubtitle = '';
       });
       _initPlayer();
-    } else if (oldWidget.isActive && !widget.isActive) {
-      if (_isInitialized && _controller.value.isPlaying) {
-        _controller.pause();
+    } else {
+      if (oldWidget.segments != widget.segments) {
+        _onControllerUpdate();
+      }
+      if (oldWidget.isActive && !widget.isActive) {
+        if (_isInitialized && _controller.value.isPlaying) {
+          _controller.pause();
+        }
       }
     }
   }
@@ -159,71 +165,82 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
         color: Colors.black,
         child: Column(
           children: [
-            AspectRatio(
-              aspectRatio: _controller.value.aspectRatio > 0
-                  ? _controller.value.aspectRatio
-                  : 16 / 9,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  VideoPlayer(_controller),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _controller.value.isPlaying
-                            ? _controller.pause()
-                            : _controller.play();
-                      });
-                    },
-                    child: AnimatedOpacity(
-                      opacity: _controller.value.isPlaying ? 0.0 : 0.85,
-                      duration: const Duration(milliseconds: 200),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Colors.black45,
-                          shape: BoxShape.circle,
-                        ),
-                        padding: const EdgeInsets.all(16),
-                        child: Icon(
-                          _controller.value.isPlaying
-                              ? Icons.pause
-                              : Icons.play_arrow,
-                          size: 48,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (_subtitlesEnabled && _currentSubtitle.isNotEmpty)
-                    Positioned(
-                      bottom: 16,
-                      left: 16,
-                      right: 16,
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.82),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.white24, width: 0.5),
-                          ),
-                          child: Text(
-                            _currentSubtitle,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
+            Expanded(
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: _controller.value.aspectRatio > 0
+                      ? _controller.value.aspectRatio
+                      : 16 / 9,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      VideoPlayer(_controller),
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _controller.value.isPlaying
+                                ? _controller.pause()
+                                : _controller.play();
+                          });
+                        },
+                        child: AnimatedOpacity(
+                          opacity: _controller.value.isPlaying ? 0.0 : 0.85,
+                          duration: const Duration(milliseconds: 200),
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              color: Colors.black45,
+                              shape: BoxShape.circle,
+                            ),
+                            padding: const EdgeInsets.all(16),
+                            child: Icon(
+                              _controller.value.isPlaying
+                                  ? Icons.pause
+                                  : Icons.play_arrow,
+                              size: 48,
                               color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              height: 1.35,
-                              shadows: [
-                                Shadow(blurRadius: 3.0, color: Colors.black, offset: Offset(1.0, 1.0)),
-                              ],
                             ),
                           ),
                         ),
                       ),
-                    ),
-                ],
+                      if (_subtitlesEnabled && _currentSubtitle.isNotEmpty)
+                        Positioned(
+                          bottom: 16,
+                          left: 16,
+                          right: 16,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.88),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.white30, width: 0.8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.6),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Text(
+                                _currentSubtitle,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  height: 1.35,
+                                  shadows: [
+                                    Shadow(blurRadius: 4.0, color: Colors.black, offset: Offset(1.0, 1.0)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
             Container(
@@ -256,14 +273,26 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
                     ),
                   ),
                   if (widget.segments != null && widget.segments!.isNotEmpty) ...[
-                    const SizedBox(width: 4),
-                    IconButton(
+                    const SizedBox(width: 8),
+                    TextButton.icon(
                       icon: Icon(
                         _subtitlesEnabled ? Icons.closed_caption : Icons.closed_caption_disabled,
                         color: _subtitlesEnabled ? const Color(0xFF6366F1) : Colors.white38,
-                        size: 22,
+                        size: 20,
                       ),
-                      tooltip: _subtitlesEnabled ? 'Hide Subtitles' : 'Show Subtitles',
+                      label: Text(
+                        _subtitlesEnabled ? 'CC ON' : 'CC OFF',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: _subtitlesEnabled ? const Color(0xFF6366F1) : Colors.white38,
+                        ),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        backgroundColor: _subtitlesEnabled ? const Color(0x226366F1) : Colors.transparent,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      ),
                       onPressed: () {
                         setState(() {
                           _subtitlesEnabled = !_subtitlesEnabled;
@@ -271,7 +300,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
                       },
                     ),
                   ],
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 8),
                   Text(
                     widget.title,
                     style: const TextStyle(

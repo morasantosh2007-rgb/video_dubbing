@@ -51,8 +51,8 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
     }
   }
 
-  Future<void> _downloadVideo() async {
-    final url = Uri.parse(ApiService.getDownloadUrl(widget.jobId));
+  Future<void> _downloadVideo({bool withSubtitles = true}) async {
+    final url = Uri.parse(ApiService.getDownloadUrl(widget.jobId, burnedSubtitles: withSubtitles));
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } else {
@@ -225,7 +225,7 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
                       Padding(
                         padding: const EdgeInsets.all(16),
                         child: SizedBox(
-                          height: 400,
+                          height: 480,
                           child: TabBarView(
                             controller: _tabController,
                             children: [
@@ -277,11 +277,23 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
                         children: [
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: _downloadVideo,
-                              icon: const Icon(Icons.download),
-                              label: const Text('Download Telugu Video'),
+                              onPressed: () => _downloadVideo(withSubtitles: true),
+                              icon: const Icon(Icons.subtitles),
+                              label: const Text('Download with Subtitles (.mp4)'),
                               style: ElevatedButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _downloadVideo(withSubtitles: false),
+                              icon: const Icon(Icons.download),
+                              label: const Text('Download Clean Video (.mp4)'),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                side: const BorderSide(color: AppTheme.border),
                               ),
                             ),
                           ),
@@ -294,9 +306,9 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
                               );
                             },
                             icon: const Icon(Icons.add),
-                            label: const Text('Dub Another Video'),
+                            label: const Text('Dub Another'),
                             style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
                             ),
                           ),
                         ],

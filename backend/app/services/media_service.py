@@ -180,6 +180,7 @@ class MediaService:
                 "-metadata:s:s:0", "language=tel",
                 "-metadata:s:s:0", "title=Telugu",
                 "-metadata:s:s:0", "handler_name=Telugu",
+                "-disposition:s:0", "default+forced",
             ])
 
         cmd.extend([
@@ -221,6 +222,7 @@ class MediaService:
                     "-metadata:s:s:0", "language=tel",
                     "-metadata:s:s:0", "title=Telugu",
                     "-metadata:s:s:0", "handler_name=Telugu",
+                    "-disposition:s:0", "default+forced",
                 ])
 
             fallback_cmd.extend([
@@ -237,6 +239,45 @@ class MediaService:
             cls.run_command(fallback_cmd)
 
         return output_video_path
+
+    @classmethod
+    def burn_subtitles(
+        cls,
+        video_path: Path,
+        subtitle_path: Path,
+        output_path: Path
+    ) -> Path:
+        """
+        Burn refined Telugu subtitles directly into the video stream pixels.
+        Ensures that when the video is played in ANY media player, browser, or device,
+        the Telugu subtitles are 100% visibly displayed on the screen.
+        """
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if not subtitle_path.exists() or subtitle_path.stat().st_size == 0:
+            raise ValueError(f"Subtitle file missing or empty: {subtitle_path}")
+
+        escaped_srt = str(subtitle_path.resolve()).replace("\\", "/").replace(":", r"\:")
+        vf_filter = (
+            f"subtitles='{escaped_srt}':"
+            "force_style='FontName=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,"
+            "OutlineColour=&H00000000,BorderStyle=3,Outline=2,Shadow=1,MarginV=25,Alignment=2'"
+        )
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", str(video_path),
+            "-vf", vf_filter,
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "18",
+            "-c:a", "copy",
+            str(output_path)
+        ]
+
+        logger.info(f"Burning Telugu subtitles into {video_path.name} -> {output_path.name}...")
+        cls.run_command(cmd)
+        return output_path
 
     @classmethod
     def validate_rendered_video(cls, video_path: Path, expected_min_duration: float = 0.5) -> bool:

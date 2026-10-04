@@ -120,13 +120,26 @@ class DubbingPipeline:
             except Exception as e_sub:
                 logger.warning(f"Failed to generate subtitles: {e_sub}")
 
-            job_store.update_status(job_id, JobStatus.RENDERING, 95, "Muxing video stream with new Telugu audio track & subtitles...")
+            job_store.update_status(job_id, JobStatus.RENDERING, 94, "Muxing video stream with new Telugu audio track & subtitles...")
             MediaService.mux_video_audio(
                 original_video_path=original_video,
                 new_audio_path=final_audio,
                 output_video_path=output_video,
                 subtitle_path=output_srt if output_srt.exists() else None
             )
+
+            # Generate video with burned-in Telugu subtitles for universal player support
+            if output_srt.exists() and output_srt.stat().st_size > 0:
+                try:
+                    job_store.update_status(job_id, JobStatus.RENDERING, 96, "Rendering video with permanently visible Telugu subtitles...")
+                    output_subtitled = settings.OUTPUT_DIR / f"dubbed_subtitled_{job_id}_{job.original_filename}"
+                    MediaService.burn_subtitles(
+                        video_path=output_video,
+                        subtitle_path=output_srt,
+                        output_path=output_subtitled
+                    )
+                except Exception as e_burn:
+                    logger.warning(f"Failed to burn subtitles into video: {e_burn}")
 
             # Step 9: VALIDATING
             logger.info(f"[{job_id}] Step 9: Validating final media...")

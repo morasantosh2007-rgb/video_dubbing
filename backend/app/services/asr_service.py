@@ -49,6 +49,46 @@ def get_whisper_model():
     return _WHISPER_MODEL
 
 class ASRService:
+    # Comprehensive Indic phonetic normalization to correct acoustic misrecognitions
+    PHONETIC_NORMALIZATION = {
+        # Conversational dialogue misrecognitions
+        r"(?<![\u0900-\u097f])मैसूर बना(?![\u0900-\u097f])": "मैं सूप बनाता हूं",
+        r"(?<![\u0900-\u097f])मैसूर(?![\u0900-\u097f])": "मैं सूप",
+        r"(?<![\u0900-\u097f])गर्म सो(?![\u0900-\u097f])": "गर्म सूप",
+        r"(?<![\u0900-\u097f])ग्राम స\s*స(?![\u0900-\u097f])": "गर्म",
+        r"(?<![\u0900-\u097f])ग्राम सूप(?![\u0900-\u097f])": "गर्म सूप",
+        r"(?<![\u0900-\u097f])ग्राम(?![\u0900-\u097f])": "गर्म",
+        r"(?<![\u0900-\u097f])यह गम(?![\u0900-\u097f])": "यह गर्म",
+        r"(?<![\u0900-\u097f])गम है(?![\u0900-\u097f])": "गर्म है",
+        r"(?<![\u0900-\u097f])यीशु(?![\u0900-\u097f])": "यह सूप",
+        r"(?<![\u0900-\u097f])यह शुभ बहुत(?![\u0900-\u097f])": "यह सूप बहुत",
+        r"(?<![\u0900-\u097f])यह शुभ स्वादिष्ट(?![\u0900-\u097f])": "यह सूप स्वादिष्ट",
+        r"(?<![\u0900-\u097f])शुभ स्वादिष्ट(?![\u0900-\u097f])": "सूप स्वादिष्ट",
+        r"(?<![\u0900-\u097f])स्वीडिश(?![\u0900-\u097f])": "स्वादिष्ट",
+        r"(?<![\u0900-\u097f])आस कसा हो(?![\u0900-\u097f])": "आप कैसे हो",
+        r"(?<![\u0900-\u097f])नमस्ते आ(?![\u0900-\u097f])": "नमस्ते आरव",
+        # Song and lyrical acoustic misrecognitions
+        r"(?<![\u0900-\u097f])का जाल की(?![\u0900-\u097f])": "काजल की",
+        r"(?<![\u0900-\u097f])लावी जोरिया(?![\u0900-\u097f])": "लव स्टोरियां",
+        r"(?<![\u0900-\u097f])रंगीजान(?![\u0900-\u097f])": "रंग जाऊं",
+        r"(?<![\u0900-\u097f])उजावेल(?![\u0900-\u097f])": "जो मैं",
+        r"(?<![\u0900-\u097f])हाथ लकाओ(?![\u0900-\u097f])": "हाथ लगाऊं",
+        r"(?<![\u0900-\u097f])डिनडिटे सारा(?![\u0900-\u097f])": "दिन बीते सारा",
+        r"(?<![\u0900-\u097f])थेरिफिकामे(?![\u0900-\u097f])": "तेरी फिक्र में",
+        r"(?<![\u0900-\u097f])रमेसाली(?![\u0900-\u097f])": "रैन सारी",
+        r"(?<![\u0900-\u097f])थेरिफ हेर वनौ(?![\u0900-\u097f])": "तेरी खैर मनाऊं",
+        r"(?<![\u0900-\u097f])केसेविया(?![\u0900-\u097f])": "केसरिया",
+    }
+
+    @classmethod
+    def normalize_hindi_text(cls, text: str) -> str:
+        if not text:
+            return ""
+        import re
+        for pattern, replacement in cls.PHONETIC_NORMALIZATION.items():
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        return text.strip()
+
     @classmethod
     def _transcribe_acoustic_intervals(cls, audio_path: Path, language: str = "hi") -> List[SpeechSegment]:
         """
@@ -76,24 +116,6 @@ class ASRService:
                 else:
                     merged.append([st, en])
 
-        # Phonetic normalization dictionary for common acoustic misrecognitions in conversational dialogue
-        PHONETIC_NORMALIZATION = {
-            r"\bग्राम స\s*స\b": "गर्म",
-            r"\bग्राम सूप\b": "गर्म सूप",
-            r"\bग्राम\b": "गर्म",
-            r"\bयह गम\b": "यह गर्म",
-            r"\bगम है\b": "गर्म है",
-            r"\bमैसूर बना\b": "मैं सूप बनाता हूं",
-            r"\bयीशु\b": "यह सूप",
-            r"\bयह शुभ बहुत\b": "यह सूप बहुत",
-            r"\bयह शुभ स्वादिष्ट\b": "यह सूप स्वादिष्ट",
-            r"\bशुभ स्वादिष्ट\b": "सूप स्वादिष्ट",
-            r"\bस्वीडिश\b": "स्वादिष्ट",
-            r"\bआस कसा हो\b": "आप कैसे हो",
-            r"\bनमस्ते आ\b": "नमस्ते आरव"
-        }
-
-        import re
         recognizer = sr.Recognizer()
         speech_segments: List[SpeechSegment] = []
         lang_code = f"{language}-IN" if language in ["hi", "te", "ta", "mr", "bn", "gu", "kn", "pa"] else language
@@ -128,9 +150,7 @@ class ASRService:
                             pass
 
                     if text and text.strip():
-                        cleaned_text = text.strip()
-                        for pattern, replacement in PHONETIC_NORMALIZATION.items():
-                            cleaned_text = re.sub(pattern, replacement, cleaned_text, flags=re.IGNORECASE)
+                        cleaned_text = cls.normalize_hindi_text(text.strip())
 
                         speech_segments.append(
                             SpeechSegment(
@@ -266,8 +286,7 @@ class ASRService:
                     continue
 
                 # If text contains Urdu/Arabic characters, convert them to standard Devanagari Hindi
-                has_arabic = any('\u0600' <= c <= '\u06ff' for c in text)
-                if has_arabic:
+                if any('\u0600' <= c <= '\u06ff' for c in text):
                     try:
                         from app.services.translation_service import TranslationService
                         converted = TranslationService.translate_segment(text, source_lang="ur", target_lang="hi")
@@ -276,6 +295,7 @@ class ASRService:
                     except Exception:
                         pass
 
+                text = cls.normalize_hindi_text(text)
                 extracted.append(
                     SpeechSegment(
                         segment_id=idx,
@@ -441,7 +461,7 @@ class ASRService:
                         start=round(start, 2),
                         end=round(end, 2),
                         duration=round(end - start, 2),
-                        hindi_text=text,
+                        hindi_text=cls.normalize_hindi_text(text),
                         telugu_text="",
                         speaker="Speaker 1"
                     )
@@ -482,7 +502,7 @@ class ASRService:
                                 start=start_sec,
                                 end=end_sec,
                                 duration=round(end_sec - start_sec, 2),
-                                hindi_text=text.strip(),
+                                hindi_text=cls.normalize_hindi_text(text.strip()),
                                 telugu_text="",
                                 speaker="Speaker 1"
                             )

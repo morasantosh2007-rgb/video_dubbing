@@ -111,9 +111,13 @@ class ApiService {
     return [];
   }
 
-  static String getDubbedVideoUrl(String jobId) => '$apiPrefix/jobs/$jobId/video/dubbed';
+  static String getDubbedVideoUrl(String jobId, {bool burnedSubtitles = false}) =>
+      burnedSubtitles ? '$apiPrefix/jobs/$jobId/video/subtitled' : '$apiPrefix/jobs/$jobId/video/dubbed';
+  static String getSubtitledVideoUrl(String jobId) => '$apiPrefix/jobs/$jobId/video/subtitled';
   static String getOriginalVideoUrl(String jobId) => '$apiPrefix/jobs/$jobId/video/original';
-  static String getDownloadUrl(String jobId) => '$apiPrefix/jobs/$jobId/download';
+  static String getDownloadUrl(String jobId, {bool burnedSubtitles = false}) =>
+      burnedSubtitles ? '$apiPrefix/jobs/$jobId/download/subtitled' : '$apiPrefix/jobs/$jobId/download';
+  static String getSubtitledDownloadUrl(String jobId) => '$apiPrefix/jobs/$jobId/download/subtitled';
   static String getSrtDownloadUrl(String jobId) => '$apiPrefix/jobs/$jobId/subtitles/srt';
   static String getVttUrl(String jobId) => '$apiPrefix/jobs/$jobId/subtitles/vtt';
 }
