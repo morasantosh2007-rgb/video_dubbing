@@ -173,7 +173,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   controller: controller,
                   decoration: const InputDecoration(
                     labelText: 'Backend URL',
-                    hintText: 'http://192.168.29.46:8000',
+                    hintText: 'https://video-dubbing-1.onrender.com',
                     prefixIcon: Icon(Icons.link, size: 20),
                   ),
                 ),
@@ -188,12 +188,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   runSpacing: 6,
                   children: [
                     ActionChip(
-                      label: const Text('My PC Wi-Fi (192.168.29.46)', style: TextStyle(fontSize: 11)),
-                      onPressed: () => setDialogState(() => controller.text = 'http://192.168.29.46:8000'),
+                      label: const Text('Render Cloud (24/7)', style: TextStyle(fontSize: 11)),
+                      onPressed: () => setDialogState(() => controller.text = 'https://video-dubbing-1.onrender.com'),
                     ),
                     ActionChip(
-                      label: const Text('Android Emulator (10.0.2.2)', style: TextStyle(fontSize: 11)),
-                      onPressed: () => setDialogState(() => controller.text = 'http://10.0.2.2:8000'),
+                      label: const Text('My PC Wi-Fi (192.168.29.46)', style: TextStyle(fontSize: 11)),
+                      onPressed: () => setDialogState(() => controller.text = 'http://192.168.29.46:8000'),
                     ),
                     ActionChip(
                       label: const Text('Localhost (127.0.0.1)', style: TextStyle(fontSize: 11)),
@@ -310,42 +310,38 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 12),
+            padding: const EdgeInsets.only(right: 18),
             child: Center(
-              child: InkWell(
-                onTap: _showServerConfigDialog,
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: _backendOnline
-                        ? AppTheme.accent.withOpacity(0.15)
-                        : Colors.redAccent.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _backendOnline ? AppTheme.accent : Colors.redAccent,
-                      width: 1,
+              child: Tooltip(
+                message: _backendOnline ? 'Online' : 'Offline / Connecting',
+                child: InkWell(
+                  onTap: _showServerConfigDialog,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: (_backendOnline ? AppTheme.accent : Colors.redAccent).withOpacity(0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: (_backendOnline ? AppTheme.accent : Colors.redAccent).withOpacity(0.4),
+                        width: 1,
+                      ),
                     ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircleAvatar(
-                        radius: 4,
-                        backgroundColor: _backendOnline ? AppTheme.accent : Colors.redAccent,
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: _backendOnline ? AppTheme.accent : Colors.redAccent,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: (_backendOnline ? AppTheme.accent : Colors.redAccent).withOpacity(0.8),
+                            blurRadius: 6,
+                            spreadRadius: 1,
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _backendOnline ? 'Backend Online' : 'Connecting...',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: _backendOnline ? AppTheme.accent : Colors.redAccent,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      const Icon(Icons.tune, size: 14, color: AppTheme.textSecondary),
-                    ],
+                    ),
                   ),
                 ),
               ),

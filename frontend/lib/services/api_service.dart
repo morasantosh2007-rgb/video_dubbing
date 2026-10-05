@@ -5,14 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/job_model.dart';
 
 class ApiService {
-  static const String _prefKey = 'dubai_backend_base_url';
+  static const String defaultUrl = 'https://video-dubbing-1.onrender.com';
+  static const String _prefKey = 'dubai_backend_base_url_v3';
 
-  // Default URL: on Android devices, defaults to PC Wi-Fi IP; can be dynamically edited in UI
-  static String baseUrl = kIsWeb
-      ? 'http://127.0.0.1:8000'
-      : (defaultTargetPlatform == TargetPlatform.android
-          ? 'http://192.168.29.46:8000'
-          : 'http://127.0.0.1:8000');
+  // Default URL: points to the 24/7 Render cloud server
+  static String baseUrl = defaultUrl;
 
   static String get apiPrefix => '$baseUrl/api';
 
@@ -22,9 +19,12 @@ class ApiService {
       final saved = prefs.getString(_prefKey);
       if (saved != null && saved.trim().isNotEmpty) {
         baseUrl = saved.trim();
+      } else {
+        baseUrl = defaultUrl;
       }
     } catch (e) {
       debugPrint('Error loading saved baseUrl: $e');
+      baseUrl = defaultUrl;
     }
   }
 
@@ -34,7 +34,7 @@ class ApiService {
       clean = clean.substring(0, clean.length - 1);
     }
     if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
-      clean = 'http://$clean';
+      clean = 'https://$clean';
     }
     baseUrl = clean;
     try {
@@ -47,10 +47,10 @@ class ApiService {
 
   static Future<bool> checkHealth([String? overrideUrl]) async {
     try {
-      final target = overrideUrl != null
-          ? (overrideUrl.endsWith('/') ? '${overrideUrl}api/health' : '$overrideUrl/api/health')
-          : '$apiPrefix/health';
-      final res = await http.get(Uri.parse(target)).timeout(const Duration(seconds: 4));
+      final base = overrideUrl != null && overrideUrl.trim().isNotEmpty ? overrideUrl.trim() : baseUrl;
+      final cleanBase = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+      final target = '$cleanBase/api/health';
+      final res = await http.get(Uri.parse(target)).timeout(const Duration(seconds: 12));
       return res.statusCode == 200;
     } catch (_) {
       return false;
