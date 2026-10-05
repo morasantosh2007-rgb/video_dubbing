@@ -61,3 +61,46 @@ def test_delete_job():
     assert "deleted successfully" in res_del.json()["message"]
     assert job_store.get_job("test_delete_id_999") is None
 
+def test_create_youtube_job_invalid_url():
+    response = client.post(
+        f"{settings.API_PREFIX}/jobs/youtube",
+        json={"url": "https://not-a-real-video-link.com"}
+    )
+    assert response.status_code == 400
+    assert "Invalid YouTube link" in response.json()["detail"]
+
+def test_create_youtube_job_success(monkeypatch):
+    from app.services.youtube_service import YouTubeService
+    from app.services.pipeline import DubbingPipeline
+
+    # Mock metadata check and background task execution
+    monkeypatch.setattr(
+        YouTubeService,
+        "get_video_info",
+        lambda url, max_duration=900: {
+            "id": "dQw4w9WgXcQ",
+            "title": "Hindi Motivational Speech",
+            "duration": 120,
+            "uploader": "Test Channel",
+            "thumbnail": "https://example.com/thumb.jpg",
+        }
+    )
+    monkeypatch.setattr(DubbingPipeline, "execute_job", lambda job_id, youtube_url=None: None)
+
+    response = client.post(
+        f"{settings.API_PREFIX}/jobs/youtube",
+        json={
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "source_language": "hi",
+            "target_language": "te",
+            "voice_id": "te-IN-MohanNeural",
+            "preserve_background": False
+        }
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["status"] == "DOWNLOADING"
+    assert "Hindi_Motivational_Speech.mp4" in data["original_filename"]
+    assert data["job_id"] is not None
+
+

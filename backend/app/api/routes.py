@@ -16,10 +16,12 @@ from app.models.schemas import (
     LanguageOption,
     SpeechSegment,
     VoiceOption,
+    YoutubeJobRequest,
 )
 from app.services.pipeline import DubbingPipeline
 from app.services.tts_service import TTSService
 from app.services.subtitle_service import SubtitleService
+from app.services.youtube_service import YouTubeService
 from app.storage.job_store import job_store
 
 logger = logging.getLogger(__name__)
@@ -126,6 +128,74 @@ async def create_dubbing_job(
     background_tasks.add_task(DubbingPipeline.execute_job, job_id)
 
     return job
+
+@router.post("/jobs/youtube", response_model=DubbingJobResponse, status_code=status.HTTP_201_CREATED)
+async def create_youtube_dubbing_job(
+    request: YoutubeJobRequest,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Submit a YouTube URL (Hindi video or Shorts) for automated extraction and Telugu dubbing.
+    """
+    clean_url = request.url.strip()
+    if not YouTubeService.is_valid_youtube_url(clean_url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid YouTube link. Please provide a valid youtube.com or youtu.be URL."
+        )
+
+    # Inspect video metadata (fast, flat extraction)
+    try:
+        info = YouTubeService.get_video_info(clean_url, max_duration=900)
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(ve)
+        )
+    except Exception as e:
+        logger.error(f"Error inspecting YouTube video for {clean_url}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to access YouTube video: {str(e)}"
+        )
+
+    video_title = info.get("title", "youtube_video")
+    clean_title = sanitize_filename(f"{video_title}.mp4")
+    if not clean_title.lower().endswith(".mp4"):
+        clean_title += ".mp4"
+
+    job_id = uuid.uuid4().hex[:12]
+    saved_path = settings.UPLOAD_DIR / f"{job_id}_{clean_title}"
+
+    job_settings = JobSettings(
+        source_language=request.source_language,
+        target_language=request.target_language,
+        voice_id=request.voice_id,
+        speaking_rate=request.speaking_rate,
+        preserve_background=request.preserve_background,
+        ducking_db=request.ducking_db
+    )
+
+    job = job_store.create_job(
+        job_id=job_id,
+        original_filename=clean_title,
+        original_video_path=saved_path,
+        job_settings=job_settings
+    )
+
+    # Mark as downloading
+    job_store.update_status(
+        job_id,
+        JobStatus.DOWNLOADING,
+        5,
+        f"Connecting to YouTube to download '{video_title[:50]}'..."
+    )
+
+    # Dispatch asynchronous background task with youtube_url
+    background_tasks.add_task(DubbingPipeline.execute_job, job_id, clean_url)
+
+    updated_job = job_store.get_job(job_id)
+    return updated_job or job
 
 @router.get("/jobs", response_model=List[DubbingJobResponse])
 def get_jobs(limit: int = 20):

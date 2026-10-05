@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dubbing_app/main.dart';
 import 'package:dubbing_app/models/job_model.dart';
 import 'package:dubbing_app/widgets/step_indicator.dart';
+import 'package:dubbing_app/screens/upload_screen.dart';
 
 void main() {
   testWidgets('App renders Home Screen with hero title and button', (WidgetTester tester) async {
@@ -28,7 +29,7 @@ void main() {
     );
 
     // Verify steps are rendered
-    expect(find.text('Video Uploaded'), findsOneWidget);
+    expect(find.text('Video Sourced / Downloaded'), findsOneWidget);
     expect(find.text('Audio Timings Synchronized'), findsOneWidget);
     expect(find.text('Active'), findsOneWidget);
   });
@@ -79,6 +80,28 @@ void main() {
     expect(fullTelugu, 'నమస్కారం మీరు ఎలా ఉన్నారు?');
     expect(fullTelugu.contains('आप'), isFalse);
     expect(fullTelugu.contains('नमस्ते'), isFalse);
+  });
+
+  testWidgets('UploadScreen toggles to YouTube Link tab and shows input field', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: UploadScreen(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify both tabs exist
+    expect(find.text('Upload File'), findsOneWidget);
+    expect(find.text('YouTube Link'), findsOneWidget);
+
+    // Tap YouTube Link tab
+    await tester.tap(find.text('YouTube Link'));
+    await tester.pumpAndSettle();
+
+    // Verify YouTube UI appears
+    expect(find.text('Paste Hindi YouTube Video URL'), findsOneWidget);
+    expect(find.text('Extract & Dub YouTube Video'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
   });
 }
 

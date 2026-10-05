@@ -5,6 +5,7 @@ from datetime import datetime
 
 class JobStatus(str, Enum):
     UPLOADED = "UPLOADED"
+    DOWNLOADING = "DOWNLOADING"
     ANALYZING = "ANALYZING"
     EXTRACTING_AUDIO = "EXTRACTING_AUDIO"
     TRANSCRIBING = "TRANSCRIBING"
@@ -47,6 +48,16 @@ class JobSettings(BaseModel):
     speaking_rate: float = 1.0
     preserve_background: bool = True
     ducking_db: float = -12.0
+
+class YoutubeJobRequest(BaseModel):
+    url: str = Field(..., description="Direct YouTube video or Shorts URL")
+    source_language: str = Field(default="hi", description="Source spoken language code")
+    target_language: str = Field(default="te", description="Target dubbing language code")
+    voice_id: str = Field(default="te-IN-MohanNeural", description="TTS voice identifier")
+    speaking_rate: float = Field(default=1.0, ge=0.5, le=2.0, description="Speech rate adjustment")
+    preserve_background: bool = Field(default=False, description="Whether to duck background ambience")
+    ducking_db: float = Field(default=-12.0, description="Background ducking depth in dB")
+
 
 class JobProgressResponse(BaseModel):
     job_id: str

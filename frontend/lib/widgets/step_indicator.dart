@@ -13,7 +13,7 @@ class StepIndicator extends StatelessWidget {
   });
 
   static const List<Map<String, dynamic>> _steps = [
-    {'status': JobStatus.UPLOADED, 'title': 'Video Uploaded'},
+    {'status': JobStatus.UPLOADED, 'title': 'Video Sourced / Downloaded'},
     {'status': JobStatus.ANALYZING, 'title': 'Media Analyzed'},
     {'status': JobStatus.EXTRACTING_AUDIO, 'title': 'Audio Extracted'},
     {'status': JobStatus.TRANSCRIBING, 'title': 'Hindi Speech Transcribed'},
@@ -26,6 +26,7 @@ class StepIndicator extends StatelessWidget {
   ];
 
   int get _currentIndex {
+    if (currentStatus == JobStatus.DOWNLOADING) return 0;
     for (int i = 0; i < _steps.length; i++) {
       if (_steps[i]['status'] == currentStatus) return i;
     }

@@ -124,6 +124,38 @@ class ApiService {
     }
   }
 
+  static Future<DubbingJob> submitYoutubeJob({
+    required String youtubeUrl,
+    required JobSettings settings,
+  }) async {
+    final uri = Uri.parse('$apiPrefix/jobs/youtube');
+    final res = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'url': youtubeUrl,
+        'source_language': settings.sourceLanguage,
+        'target_language': settings.targetLanguage,
+        'voice_id': settings.voiceId,
+        'speaking_rate': settings.speakingRate,
+        'preserve_background': settings.preserveBackground,
+        'ducking_db': settings.duckingDb,
+      }),
+    );
+
+    if (res.statusCode == 201 || res.statusCode == 200) {
+      final data = jsonDecode(utf8.decode(res.bodyBytes));
+      return DubbingJob.fromJson(data);
+    } else {
+      String err = 'YouTube extraction failed (${res.statusCode})';
+      try {
+        final errJson = jsonDecode(utf8.decode(res.bodyBytes));
+        if (errJson['detail'] != null) err = errJson['detail'];
+      } catch (_) {}
+      throw Exception(err);
+    }
+  }
+
   static Future<DubbingJob> getJob(String jobId) async {
     final res = await http.get(Uri.parse('$apiPrefix/jobs/$jobId'));
     if (res.statusCode == 200) {

@@ -12,15 +12,17 @@ from app.services.translation_service import TranslationService
 from app.services.tts_service import TTSService
 from app.services.audio_sync_service import AudioSyncService
 from app.services.subtitle_service import SubtitleService
+from app.services.youtube_service import YouTubeService
 from app.storage.job_store import job_store
 
 logger = logging.getLogger(__name__)
 
 class DubbingPipeline:
     @classmethod
-    def execute_job(cls, job_id: str):
+    def execute_job(cls, job_id: str, youtube_url: Optional[str] = None):
         """
         Executes the end-to-end Hindi -> Telugu dubbing pipeline synchronously in background worker.
+        If youtube_url is provided, downloads the video first before speech processing.
         """
         job = job_store.get_job(job_id)
         if not job:
@@ -34,6 +36,35 @@ class DubbingPipeline:
         output_video = settings.OUTPUT_DIR / f"dubbed_{job_id}_{job.original_filename}"
 
         try:
+            # Step 0 (If YouTube): DOWNLOADING
+            if youtube_url:
+                logger.info(f"[{job_id}] Step 0: Downloading YouTube video from {youtube_url}...")
+                job_store.update_status(
+                    job_id,
+                    JobStatus.DOWNLOADING,
+                    5,
+                    "Connecting to YouTube & downloading video stream..."
+                )
+
+                def on_download_progress(pct: int, msg: str):
+                    job_store.update_status(job_id, JobStatus.DOWNLOADING, pct, msg)
+
+                YouTubeService.download_video(
+                    url=youtube_url,
+                    output_path=original_video,
+                    progress_callback=on_download_progress
+                )
+
+                if not original_video.exists() or original_video.stat().st_size == 0:
+                    raise RuntimeError("YouTube video download failed or resulted in an empty file.")
+
+                job_store.update_status(
+                    job_id,
+                    JobStatus.ANALYZING,
+                    10,
+                    "YouTube video downloaded successfully. Inspecting media..."
+                )
+
             # Step 1: ANALYZING
             logger.info(f"[{job_id}] Step 1: Analyzing video...")
             job_store.update_status(job_id, JobStatus.ANALYZING, 10, "Inspecting video format and audio streams...")

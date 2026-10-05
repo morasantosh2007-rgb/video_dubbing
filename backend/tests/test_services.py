@@ -60,3 +60,15 @@ def test_subtitle_service(tmp_path):
     vtt_content = vtt_file.read_text(encoding="utf-8")
     assert "WEBVTT" in vtt_content
     assert "00:00:01.500 --> 00:00:03.800" in vtt_content
+
+def test_youtube_service_url_validation():
+    from app.services.youtube_service import YouTubeService
+
+    assert YouTubeService.is_valid_youtube_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert YouTubeService.is_valid_youtube_url("https://youtu.be/dQw4w9WgXcQ?si=test123")
+    assert YouTubeService.is_valid_youtube_url("https://www.youtube.com/shorts/dQw4w9WgXcQ")
+    assert YouTubeService.is_valid_youtube_url("https://m.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert not YouTubeService.is_valid_youtube_url("https://example.com/video.mp4")
+    assert not YouTubeService.is_valid_youtube_url("invalid_string")
+    assert YouTubeService.extract_video_id("https://youtu.be/dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+

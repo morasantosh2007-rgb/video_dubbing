@@ -2,6 +2,7 @@
 
 enum JobStatus {
   UPLOADED,
+  DOWNLOADING,
   ANALYZING,
   EXTRACTING_AUDIO,
   TRANSCRIBING,
@@ -25,6 +26,8 @@ enum JobStatus {
     switch (this) {
       case JobStatus.UPLOADED:
         return 'Video Uploaded';
+      case JobStatus.DOWNLOADING:
+        return 'Downloading from YouTube';
       case JobStatus.ANALYZING:
         return 'Analyzing Video';
       case JobStatus.EXTRACTING_AUDIO:

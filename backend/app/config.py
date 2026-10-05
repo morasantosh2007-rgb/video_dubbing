@@ -15,7 +15,7 @@ for directory in (UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR):
 
 class Settings:
     PROJECT_NAME: str = "Hindi -> Telugu AI Video Dubbing"
-    VERSION: str = "1.0.0"
+    VERSION: str = "1.1.0"
     API_PREFIX: str = "/api"
 
     # Storage paths
